@@ -25,6 +25,7 @@ A silent no-op is the worst outcome for a beginner, because nothing tells them w
 | `goat:working` with no live claim for a long time | The issue looks busy but nothing runs |
 | A `goat:` label on an issue assigned to someone else, or to nobody | The factory ignores it |
 | A closed issue that still has `goat:working` or a gate label | Clutter, and a wrong status in lists |
+| `goat:done` added by hand before the issue was closed or cleaned up | The cleanup skips it, so its worktree and local branches stay on disk (seen on the places schema issue) |
 
 **How it could work.**
 - `goat.py doctor` reads the issues and prints each problem with the exact fix ("add the label `goat:ready`", "remove `goat:tier-review`").
