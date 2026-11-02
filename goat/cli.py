@@ -93,7 +93,7 @@ def command_list(args):
         print_json(views_json.list_data(items, utc_now()))
         return
     if not items:
-        print("No goat items.")
+        print("No G.O.A.T. issues.")
     for line in views.list_lines(items, utc_now()):
         print(line)
 
