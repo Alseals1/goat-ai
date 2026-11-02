@@ -75,6 +75,7 @@ Every command has `--help` with an example.
 | --- | --- |
 | `add "<title>" [--file -] [--milestone M] [--priority P]` | Creates an issue in `stage:discovery`. Never pass `--ready`: a person decides when work starts |
 | `setup-repo [--check] [--milestone M] [--json]` | Creates the G.O.A.T. labels (and a milestone) in the repo. Safe to repeat |
+| `discord-test [--as ROLE]` | Sends one test message to your Discord channel, signed by a teammate. People only: it needs the webhook in `~/.goat-ai/discord.env` |
 | `worktree <item>` | Makes or refreshes the issue's worktree and prints its path |
 | `cleanup [--dry-run]` | Removes local worktrees and branches of your closed issues |
 

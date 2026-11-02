@@ -26,6 +26,8 @@ from goat.actions import POST_KINDS, Goat, GoatError, refuse_ready_when_headless
 from goat.cleanup import clean_up
 from goat.config import REPO_ROOT, ConfigError, load_board, load_shared, main_checkout, project_env
 from goat.github import GitHubClient, GitHubError
+from goat.discord import DiscordError
+from goat import discord as discord_client
 from goat.notify import notify
 from goat.update import UpdateError, update
 from goat.version import version_label, version_lines
@@ -194,6 +196,22 @@ def command_team(args):
         return
     for line in team.lines(shared, local, args.role):
         print(line)
+
+
+def command_discord_test(args):
+    """Sends one test message to the Discord channel, signed by a teammate. Needs ~/.goat-ai/discord.env."""
+    webhook = discord_client.from_settings(discord_client.settings())
+    if webhook is None:
+        raise ConfigError("No {} in {}. See the README, section Discord.".format(
+            discord_client.WEBHOOK_KEY, discord_client.ENV_FILE))
+    shared = load_shared()
+    boss = team.read_owner(coordinator.CONFIG_FILE)["name"]
+    name = team.persona(shared, args.role)["name"] or "G.O.A.T."
+    username = team.dispatcher_signature(shared) if args.role == team.DISPATCHER else team.signature(shared, args.role)
+    text = "{}this is {}. If you can read this, G.O.A.T. can reach your Discord. Nothing is running because of this message.".format(
+        boss + ", " if boss else "", name)
+    webhook.send(username, text[:1].upper() + text[1:])
+    print("Sent a test message to your Discord channel as {}.".format(username))
 
 
 def command_version(args):
@@ -417,6 +435,12 @@ def build_parser():
     team_command.add_argument("--role", choices=("intake", "plan", "implement", "review", "retro", "dispatcher"),
                               help="show one role only")
     team_command.add_argument("--json", action="store_true", help=json_help)
+    discord_test = add("discord-test", command_discord_test,
+                       "send one test message to your Discord channel, signed by a teammate (default: Dex)",
+                       GOAT + " discord-test --as plan", item=False)
+    discord_test.add_argument("--as", dest="role", default=team.DISPATCHER,
+                              choices=("intake", "plan", "implement", "review", "retro", "dispatcher"),
+                              help="which teammate signs it (default: dispatcher)")
     add("version", command_version, "print G.O.A.T. version and commit", GOAT + " version", item=False)
     add("update", command_update, "move this G.O.A.T. install to the newest release tag", GOAT + " update", item=False)
     add("rules", command_rules, "print the shared gates and leases (goat-config.json)", GOAT + " rules", item=False)
@@ -438,7 +462,7 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
         return args.handler(args) or 0
-    except (GoatError, GitHubError, ConfigError, WorktreeError, UpdateError, OSError) as error:
+    except (GoatError, GitHubError, DiscordError, ConfigError, WorktreeError, UpdateError, OSError) as error:
         print("goat.py: {}".format(error), file=sys.stderr)
         # OSError has no exit_code, so it is a general failure.
         return getattr(error, "exit_code", exit_codes.GENERAL)

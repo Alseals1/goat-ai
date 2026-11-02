@@ -66,7 +66,9 @@ A silent no-op is the worst outcome for a beginner, because nothing tells them w
 - Keep it cosmetic and configurable (for example an `agents` section in `goat-config.json`), so no logic depends on a name.
 - Always show the role next to the name ("Mia, Plan agent") so nobody mistakes an AI for a person.
 
-### 4. Messaging: Slack, GroupMe, text messages, or another platform
+### 4. Messaging: Slack, GroupMe, text messages, or another platform (Discord outbound built 2026-11-02)
+
+**Status.** Built for Discord, outbound only: the team posts into a private channel through a webhook (see the README, section Discord). Still open: two-way approvals (a bot with an allow-list and an audit note), conversational questions to the agents, and the other channels.
 
 **Why.** A desktop notification only reaches the laptop it runs on. A person should hear about a gate, a question, a stalled issue or a dead coordinator wherever they are.
 

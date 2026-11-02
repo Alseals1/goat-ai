@@ -72,7 +72,7 @@ def stranded_text(item, lost, default_branch, shared=None):
                                                                     who=team.dispatcher_signature(shared))
 
 
-def advance_merged(client, items, user_id, now, dry_run=False):
+def advance_merged(client, items, user_id, now, dry_run=False, on_moved=None):
     """Moves each finished issue to stage:staging, and flags stranded stacks. Returns one log line per issue."""
     candidates = mergeable_items(items, user_id, now)
     if not candidates:
@@ -97,6 +97,8 @@ def advance_merged(client, items, user_id, now, dry_run=False):
         add, remove = fb.label_changes(item, stage=fb.STAGING, clear_goat_status=True)
         client.set_labels(item.id, add=add, remove=remove)
         lines.append("Moved #{} to stage:staging: its PR is merged.".format(item.id))
+        if on_moved:
+            on_moved(item, urls)
     for item, lost in stranded:
         already_told = any(STRANDED_MARKER in (comment.get("body") or "") for comment in item.comments)
         lines.append("Not moving #{}: PR {} merged into another branch, so its work is not on {} yet.".format(

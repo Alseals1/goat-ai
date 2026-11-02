@@ -102,6 +102,33 @@ You will see them in every comment header (for example `🤖 Priya · Review age
 - **The owner** (you, and your title) is set in your local config, not in the repo: add `"owner": {"name": "Alandis", "title": "CEO"}` to `~/.goat-ai/config.json`. Dex then addresses you by name in notifications.
 - `goat.py team` prints the cast, and `goat.py team --role plan` prints one role. Agents run it during setup to learn their voice.
 
+## Discord
+
+The team can post into a private Discord channel, each teammate under their own name, so you hear about a checkpoint without opening GitHub. **This version is outbound only**: it tells you, but you still approve by changing the label on GitHub.
+
+**What you get.** One short message each time an issue starts waiting for you (a size check from Maya, a plan from Theo, a merge from Priya, or a question or chat from whoever was working), each with the issue as a link, a short excerpt of its summary, and what to do. Dex posts when a PR is merged and when an issue stalls. Each waiting state is announced once; a plan that comes back for a second review is announced again.
+
+**Set up (once).**
+1. Create a private Discord server and a channel, for example `#dispatch`.
+2. In that channel: **Edit Channel, Integrations, Webhooks, New Webhook, Copy Webhook URL**.
+3. Put the URL in `~/.goat-ai/discord.env`, outside the repository, readable only by you:
+   ```
+   touch ~/.goat-ai/discord.env && chmod 600 ~/.goat-ai/discord.env
+   ```
+   ```
+   DISCORD_WEBHOOK_DISPATCH=the-url
+   ```
+4. Check it with `python3 ~/.goat-ai/goat.py discord-test`. It posts one message as Dex. `discord-test --as plan` posts as Theo.
+
+The same file can also hold `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_CHANNEL_DISPATCH` and `DISCORD_OWNER_USER_ID`. Those are for the two-way version (approving from Discord), which is not built yet, so they are not used.
+
+**Good to know.**
+- Messages are sent by the coordinator, so they only appear while it is running.
+- `"discord": false` in the coordinator config turns the messages off. A dry run (`run --dry-run`) never sends anything.
+- The webhook URL is a secret: anyone who has it can post to your channel. It is never printed, never put in an error message, and agents are blocked from reading the file or reaching Discord. If it leaks, delete the webhook in Discord and make a new one.
+- Messages never ping anyone (`@everyone` and roles are switched off), and text from an issue is cut to Discord's limits.
+- Certificates are always checked. The python.org build of Python on macOS has none of its own, so the macOS system certificates are used instead.
+
 ## The labels
 
 `goat.py setup-repo` creates all of these:

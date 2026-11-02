@@ -115,7 +115,21 @@
       "mcp__*github*__run*",
       "mcp__*github*__rerun*",
       "mcp__*github*__cancel*",
-      "mcp__*github*__transfer*"
+      "mcp__*github*__transfer*",
+      "Read(~/.goat-ai/discord.env)",
+      "Bash(cat *discord.env*)",
+      "Bash(head *discord.env*)",
+      "Bash(tail *discord.env*)",
+      "Bash(grep *discord.env*)",
+      "Bash(source *discord.env*)",
+      "Bash(. *discord.env*)",
+      "Bash(open *discord.env*)",
+      "Bash(curl *discord.com*)",
+      "Bash(wget *discord.com*)",
+      "Bash(http *discord.com*)",
+      "WebFetch(domain:discord.com)",
+      "Bash(python3 */goat.py discord-test*)",
+      "Bash(python3 goat.py discord-test*)"
     ]
   }
 }

@@ -81,6 +81,17 @@ Each role has a first name and a one-line voice (`agents` in `goat-config.json`;
 - The voice is limited to the first and last sentence of a post. Findings, plans, code, commit messages and PR titles stay plain, bad news is never softened, and an agent never claims to be a person (protocol section 5).
 - The owner's name and title live in the local config, not in the repository.
 
+## Discord messages
+
+The coordinator can post into a Discord channel through a webhook (`goat/discord.py`, `goat/messenger.py`). Outbound only in this version. Each message is signed by the teammate who owns the moment, using the webhook's per-message name.
+
+- **When.** `tell_waiting` runs each turn. It announces an issue the first time it is seen at a gate, a question or a chat, and remembers what it announced in the coordinator's state file (`notified`). The memory is cleared when the issue leaves the waiting state, so a second round is announced again. A failed send is logged and retried on the next turn; it never stops the coordinator. Dex also announces merges and stalled issues.
+- **Secrets.** The webhook URL lives in `~/.goat-ai/discord.env`, outside the repo. It never appears in logs, errors or messages, and the agents' deny rules block reading that file and calling Discord (`agent-settings.json`).
+- **Hardening.** `allowed_mentions` is empty on every message, so issue text cannot ping anyone. Text is stripped of control characters and cut to Discord's limits. Rate limits are waited out (capped) and retried, as are server errors.
+- **Certificates.** Verification is never turned off. When Python has no root certificates of its own (the python.org build on macOS), the system bundle is used.
+- **Tests.** The test package points the env file at an empty temporary folder, so no test can read the real settings or send a real message.
+- **Not built.** Replies. Approving from Discord needs a bot that listens, an allow-list of the owner's user id, and an audit note on the issue. See `docs/ideas.md`.
+
 ## Merge detection
 
 A merged PR is a native GitHub event, so the coordinator looks for it each turn (`goat/merge.py`). For each of your issues at `goat:merge-review` it looks for merged PRs on `goat/<number>-*` branches. It moves the issue only when the PR stored on the issue (the bottom PR of a stack) is among them, no `goat/<number>-*` branch still has an open PR, and **every merged part has actually reached the default branch**. It then posts a comment and sets `stage:staging` with no `goat:` label.

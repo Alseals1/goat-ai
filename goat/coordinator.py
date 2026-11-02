@@ -48,7 +48,8 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from goat import health, team, worktrees
+from goat import discord as discord_client
+from goat import health, messenger, team, worktrees
 from goat.board import DONE, STAGES, STALLED, GoatItem, label_changes, same_label
 from goat.choose import (DEFAULT_RETRO_CAP, RETRO_ROLE, STAGE_PRIORITY, choose_launches, choose_retros,
                          is_slot_limit, retro_candidates, MAX_ATTEMPTS, stalled_items)
@@ -255,11 +256,59 @@ def read_item(repo_path, item_id):
     return item, user_id, env
 
 
-def advance_merged_boards(boards, user_id, dry_run):
-    """Moves the issues whose PR a person merged to stage:staging, in each repo. Logs what it did."""
+def discord_webhook(config):
+    """The Discord webhook from ~/.goat-ai/discord.env, or None when it is not set up or turned off.
+
+    "discord": false in the coordinator config turns the messages off. A bad URL is logged and ignored."""
+    if config["coordinator"].get("discord", True) is False:
+        return None
+    try:
+        return discord_client.from_settings(discord_client.settings())
+    except discord_client.DiscordError as error:
+        log("Discord: {}".format(error))
+        return None
+
+
+def say(webhook, message, what):
+    """Sends (username, content, embed) to Discord. A failure is logged and never stops the coordinator."""
+    if webhook is None:
+        return
+    try:
+        webhook.send(*message)
+    except discord_client.DiscordError as error:
+        log("Discord: could not send {}: {}".format(what, error))
+
+
+def tell_discord(webhook, config, state, candidates, user_id, boards, now, dry_run):
+    """Announces issues that newly wait for a person. See goat/messenger.py."""
+    if webhook is None and not dry_run:
+        return
+    clients = {board[0]: board[2] for board in boards}
+
+    def fetch_summary(repo_path, item):
+        try:
+            return GoatItem.from_github(clients[repo_path].get_item(item.id)).summary
+        except (GitHubError, KeyError):
+            return ""
+
+    messenger.tell_waiting(webhook, candidates, user_id, state, fetch_summary, load_shared(),
+                           team.owner(config)["name"], now, dry_run, log)
+
+
+def advance_merged_boards(boards, user_id, dry_run, webhook=None, owner_name=""):
+    """Moves the issues whose PR a person merged to stage:staging, in each repo. Logs what it did.
+
+    With a Discord webhook, Dex also says so."""
+    shared = load_shared()
+
+    def on_moved(item, urls):
+        say(webhook, messenger.dispatcher_message(
+            "the PR for #{} is merged. Close the issue when it's finished: that starts the retro and the cleanup.".format(
+                item.id), shared, owner_name, "#{} {}".format(item.id, item.name), item.url), "the merge message")
+
     for path, _, client, _, items in boards:
         try:
-            lines = advance_merged(client, items, user_id, datetime.now(timezone.utc), dry_run=dry_run)
+            lines = advance_merged(client, items, user_id, datetime.now(timezone.utc), dry_run=dry_run, on_moved=on_moved)
         except GitHubError as error:
             lines = ["Merge check failed in {}: {}".format(path, error)]
         for line in lines:
@@ -458,7 +507,7 @@ def stall_comment(item, role, log_path, shared=None):
     return "\n".join(lines)
 
 
-def escalate_stalled(candidates, user_id, boards, running_items, attempts, now, config, dry_run):
+def escalate_stalled(candidates, user_id, boards, running_items, attempts, now, config, dry_run, webhook=None):
     """Stops each stalled issue visibly: sets goat:stalled, comments for the owner, and shows a desktop notification.
 
     The label goes first. If it cannot be set (for example the repo has no goat:stalled label yet), nothing else is
@@ -492,6 +541,10 @@ def escalate_stalled(candidates, user_id, boards, running_items, attempts, now, 
             notify("{}: stalled".format(team.dispatcher_name(shared)),
                    "{}{} needs you. Agents ran {} times and changed nothing.".format(
                        boss + ", " if boss else "", name, MAX_ATTEMPTS))
+        say(webhook, messenger.dispatcher_message(
+            "{} stalled: the {} agent ran {} times and changed nothing, so I stopped retrying. Check the agent log, "
+            "then set the label goat:ready to retry.".format(name, role, MAX_ATTEMPTS), shared,
+            team.owner(config)["name"], "#{} {}".format(item.id, item.name), item.url), "the stalled message")
 
 
 def tick(config, state, dry_run):
@@ -504,12 +557,14 @@ def tick(config, state, dry_run):
         return TickResult(slot_skipped=False, github_failed=github_failed)
     running_items = {run["item"] for run in state["runs"]}
     now = datetime.now(timezone.utc)
+    webhook = None if dry_run else discord_webhook(config)
     if config["coordinator"].get("autoAdvanceMerged", DEFAULT_AUTO_ADVANCE_MERGED):
-        advance_merged_boards(boards, user_id, dry_run)
+        advance_merged_boards(boards, user_id, dry_run, webhook, team.owner(config)["name"])
     retro_items = retro_items_of(boards, user_id, now)
     retro_wait_ids, retro_failed_ids = retro_cleanup_ids(retro_items, state["attempts"])
     clean_up_boards(boards, user_id, running_items, dry_run, retro_wait_ids, retro_failed_ids)
-    escalate_stalled(candidates, user_id, boards, running_items, state["attempts"], now, config, dry_run)
+    escalate_stalled(candidates, user_id, boards, running_items, state["attempts"], now, config, dry_run, webhook)
+    tell_discord(webhook, config, state, candidates, user_id, boards, now, dry_run)
     free_slots, running_per_repo, running_per_role = slot_counts(config, state)
     max_per_repo = config["coordinator"]["maxAgentsPerRepo"]
     max_per_role = config["coordinator"]["maxAgentsByRole"]
