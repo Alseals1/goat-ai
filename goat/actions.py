@@ -38,7 +38,7 @@ class GoatError(Exception):
 
 
 class ItemNotAvailable(GoatError):
-    """The item is not one this session can work on: not found, another repo, not a goat item, not yours, not ready."""
+    """The item is not one this session can work on: not found, another repo, not a G.O.A.T. item, not yours, not ready."""
     exit_code = exit_codes.ITEM_NOT_AVAILABLE
 
 
@@ -212,7 +212,7 @@ class Goat:
         self.require_session()
         item, board = self.load(item_ref)
         if not item.is_goat_item:
-            raise ItemNotAvailable("#{} has no goat: label, so it is not a goat issue. "
+            raise ItemNotAvailable("#{} has no goat: label, so it is not a G.O.A.T. issue. "
                                    "Add the label goat:ready to make it one.".format(item.id))
         self.require_owner(item)
         now = self.now()

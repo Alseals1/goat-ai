@@ -151,7 +151,7 @@ def command_doc(args):
 
 def command_summary(args):
     make_goat(args).set_summary(args.item, read_file(args.file).strip())
-    print("Goat summary set.")
+    print("Summary set.")
 
 
 def command_chat(args):
@@ -306,7 +306,7 @@ def build_parser():
         return command
 
     json_help = "print one JSON document instead of text"
-    list_command = add("list", command_list, "goat issues of the project's repo", GOAT + " list --mine --json",
+    list_command = add("list", command_list, "G.O.A.T. issues of the project's repo", GOAT + " list --mine --json",
                        item=False)
     list_command.add_argument("--mine", action="store_true", help="only issues assigned to you")
     list_command.add_argument("--json", action="store_true", help=json_help)
@@ -403,9 +403,9 @@ def build_parser():
     release.add_argument("--stage", required=True, choices=("intake", "plan", "implement", "review"))
     release.add_argument("--goat-status", required=True, choices=fb.RELEASE_STATUSES)
     release.add_argument("--file", required=True, help="handoff note, Markdown file")
-    release.add_argument("--summary", help="Goat summary, Markdown file (2,000 characters at most)")
+    release.add_argument("--summary", help="short summary, Markdown file (2,000 characters at most)")
     release.add_argument("--size", choices=("S", "M", "L", "XL"))
-    release.add_argument("--pr", help="PR link, kept in G.O.A.T. state comment")
+    release.add_argument("--pr", help="PR link, kept in the state comment")
     return parser
 
 

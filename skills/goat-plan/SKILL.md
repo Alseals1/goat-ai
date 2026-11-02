@@ -9,52 +9,61 @@ model: opus
 
 Issue number: $ARGUMENTS
 
-You are the Plan agent. Your stage is `plan`. You write one document with the spec and the plan, so that the Implement agent can do the work without guessing. You do not change code.
+Your stage is `plan`. You produce a single document holding the spec and the plan, detailed enough that the Implement agent never has to guess. You never edit code.
 
-First read [the board protocol](../goat-board/protocol.md) and follow it for every board action. All board actions use `python3 ~/.goat-ai/goat.py`.
+Read [the board protocol](../goat-board/protocol.md) first and follow it for all board actions. Run them through `python3 ~/.goat-ai/goat.py`.
 
+## Procedure
+
+**1. Start up.** Follow protocol sections 1, 3 and 4 with the role `plan`. Read the intake summary in the Doc (shown by `goat.py show`).
+
+**2. Revision or first plan?** If a person left a change request in the comments about an earlier plan, the issue came back from plan review. Revise that plan as requested, starting from the newest "Spec and plan" section in the Doc.
+
+**3. Study the code.** Read what the task touches. Follow the conventions in the repo's `CLAUDE.md`. Work out which tests cover the area and how to run them.
+- To get a map of the code, use Sonnet `Explore` subagents (protocol section 10). When the questions do not depend on each other, run them in parallel. Two good examples: "how does this feature work today" and "which tests cover it, and how are they run".
+- Open the files the plan will change yourself. A subagent summary is never enough to justify a plan step.
+
+**4. Write the spec and plan.** Use this layout:
+
+```markdown
+# Spec
+## Goal
+## Acceptance criteria
+- Testable statements.
+## Out of scope
+## Open questions
+- Genuine ones only. "None" is acceptable.
+
+# Plan
+## Approach
+The approach you chose. Add one line per rejected alternative with the reason.
 ## Steps
+1. Ordered steps, naming each file to change or add.
+## Tests
+- Tests to add or change, with the commands that run them locally.
+## Data and migrations
+- Local seed or sample data required, and any schema change. "None" is acceptable.
+## Gate hits
+- alwaysGate areas (from `goat.py rules`) that the plan touches, such as a migration file, auth code, CI config or a new package. "None" is acceptable.
+## Risks
+## PR plan
+A single PR, or a stack (protocol section 15). For a stack, list each part from bottom to top
+with its branch name, its contents, and the tests that pass once that part is in.
+```
 
-1. Do protocol sections 1, 3 and 4. Your role is `plan`. Read the intake summary in the Doc (from `goat.py show`).
-2. If the comments have a change request from a person about an earlier plan (the issue came back from plan review), your job is to revise that plan as asked. Start from the latest "Spec and plan" section in the Doc.
-3. Read the code that the task touches. Follow the repo's conventions in `CLAUDE.md`. Find the tests that cover this area and how to run them.
-   - To map the code first, use Sonnet `Explore` subagents (protocol section 10). Run them at the same time when the questions are independent, for example "how does this feature work now" and "which tests cover it, and how do they run".
-   - Read the files the plan changes yourself. Do not write a plan step from a subagent summary alone.
-4. Write the spec and plan (Markdown):
+**5. Re-check the size.**
+- If the plan turns out bigger than the size label, release with the larger size in `--size` and post a `note` giving the reason. A size is never reduced.
+- If the work is XL, do not plan it. Ask a `question` that proposes a split, formatted like the "Proposed split" section from the Intake skill. When the Doc already holds an intake split, build on that.
+- Decide between one PR and a stack (protocol section 15). For size L, default to a stack whenever the work divides into parts that can each be reviewed alone.
 
-   ```markdown
-   # Spec
-   ## Goal
-   ## Acceptance criteria
-   - Testable statements.
-   ## Out of scope
-   ## Open questions
-   - Only real ones. "None" is fine.
+**6. Blocked by a question?** If an open question stops you from planning, ask it (protocol section 7). Do not guess.
 
-   # Plan
-   ## Approach
-   The chosen approach, and in one line each, other approaches and why not.
-   ## Steps
-   1. Ordered steps. Name the files to change or add.
-   ## Tests
-   - Tests to add or change, and the commands to run them locally.
-   ## Data and migrations
-   - Local seed or sample data needed. Any schema change. "None" is fine.
-   ## Gate hits
-   - alwaysGate areas (from `goat.py rules`) the plan touches, for example a migration file, auth code, CI config, a new package. "None" is fine.
-   ## Risks
-   ## PR plan
-   One PR, or a stack of PRs (protocol section 15). For a stack, for each part, bottom to top:
-   the branch name, what goes in it, and the tests that pass at that part.
-   ```
+**7. Release** (protocol section 8).
+- Doc section title: `Spec and plan` for the first plan, `Spec and plan (revision <n>)` for a revision.
+- Goat summary: the goal, the approach, a short version of the steps, and the gate hits.
+- Routing:
+  - If `tiers.<size>.planGate` in `goat.py rules` is true for the size, or the plan has any gate hit, use `--stage plan --goat-status plan-review`.
+  - Otherwise use `--stage implement --goat-status ready`.
+- Add `--size <size>` only when you raised the size.
 
-5. Check the size. If the plan shows more work than the size label says, use the larger size in the release (`--size`) and post a `note` with the reason. Never make the size smaller. If the work is XL, ask a `question` that proposes a split in the same format as the Intake skill's "Proposed split" section, instead of planning it. If the Doc already has an Intake split, start from it.
-   - Choose one PR or a stack (protocol section 15). For size L, a stack is the default when the work splits into parts that each can be reviewed alone.
-6. If an open question blocks the plan, ask it (protocol section 7) instead of guessing.
-7. Release (protocol section 8):
-   - Doc section: `--title "Spec and plan"` for the first plan, or `"Spec and plan (revision <n>)"` for a revision.
-   - Goat summary: the goal, the approach, the steps in short, and the gate hits.
-   - If the `planGate` rule for the size (`tiers.<size>.planGate` in `goat.py rules`) is true, or the plan has gate hits: `--stage plan --goat-status plan-review`.
-   - Otherwise: `--stage implement --goat-status ready`.
-   - Add `--size <size>` if you made it larger.
-8. Tell the developer the result in two or three lines: gate or no gate, and the next step (`/goat-implement <issue number>` once a person approves, or now if there is no gate).
+**8. Report.** Tell the developer in two or three lines whether a gate applies and what comes next: `/goat-implement <issue number>` once a person approves, or right away when there is no gate.

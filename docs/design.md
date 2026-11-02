@@ -1,119 +1,110 @@
-# Design: the factory on GitHub Issues
+# G.O.A.T. AI: design
 
-G.O.A.T. AI keeps its tasks in GitHub Issues. It started as a port of a factory that used a Monday board, and the workflow is the same: agents work a task through intake, plan, implement and review, and people hold every gate and every merge. This file says how issues carry the state, and what is different from the original.
+G.O.A.T. AI keeps every task in a GitHub Issue. Agents carry a task through four stages (intake, plan, implement, review) and hand a pull request to a person; people hold every gate and make every merge. This document explains how an issue carries its state, how agents avoid stepping on each other, and what happens when something goes wrong.
 
-## Workflow
+## The flow of one task
 
-1. A task is an issue. `stage:discovery` (backlog) issues are ignored by the goat. A person assigns it, sets `stage:intake` and `goat:ready`.
-2. **Intake** (Sonnet) summarizes the issue and proposes a size. It stops at `goat:tier-review`.
-3. **Plan** (Opus) writes the spec and plan. It stops at `goat:plan-review` for sizes M, L and XL, or when the plan touches an always-gate area (a database migration, auth or permissions, CI or deploy settings, a new dependency). XL is split instead of planned.
-4. **Implement** (Sonnet for S, Opus for larger) works in its own git worktree on a `goat/<number>-<slug>` branch and opens a draft PR. Size L uses stacked PRs.
-5. **Review** (Opus, a new session) reviews the PR and reads the CI checks. It sends changes back to Implement (at most 2 rounds, then it asks a question), or marks the PR ready and stops at `goat:merge-review`.
-6. **A person merges.** The coordinator sees the merge and moves the issue to `stage:staging`.
-7. **A person closes the issue.** The coordinator runs a retro, then cleans up the worktrees and branches and sets `goat:done`. An aggregate retro files improvement issues from many retro notes.
+1. A task is an issue. Issues in `stage:discovery` (the backlog) are ignored. A person assigns the issue and labels it `stage:intake` and `goat:ready`.
+2. **Intake** (Sonnet) restates the task, proposes a size, and stops at `goat:tier-review`.
+3. **Plan** (Opus) writes a spec and a plan. For sizes M, L and XL, or when the plan touches an always-gate area (a database migration, auth or permissions, CI or deploy settings, a new dependency), it stops at `goat:plan-review`. An XL task is split instead of planned.
+4. **Implement** (Sonnet for S, Opus for larger) works in its own git worktree on a `goat/<number>-<slug>` branch and opens a draft PR. Size L is built as stacked PRs.
+5. **Review** (Opus, in a fresh session) reads the diff and the CI checks. It either sends fixes back to Implement (at most two rounds, then it asks a question) or marks the PR ready and stops at `goat:merge-review`.
+6. **A person merges.** The coordinator notices and moves the issue to `stage:staging`.
+7. **A person closes the issue.** The coordinator then runs a retro, removes the local worktrees and branches, and sets `goat:done`. Now and then an aggregate retro turns many retro notes into improvement issues.
 
-Agents never approve a gate, answer a question, or merge. The gate rules are in `goat-config.json` and are applied by the Intake and Plan agents.
+Agents never approve a gate, answer a question or merge. The gate rules live in `goat-config.json`; the Intake and Plan agents apply them.
 
 ## How an issue holds its state
 
-| Monday (original) | GitHub |
+| Need | Where it lives |
 | --- | --- |
-| A board per repo | The project repo's Issues. One checkout, one repo |
-| Status (stage) | One `stage:*` label. A closed issue is done |
-| G.O.A.T. status | At most one `goat:*` label. No `goat:` label: G.O.A.T. ignores the issue |
-| Size, Priority | `size:*` and `prio:*` labels |
-| Owner | Assignee. G.O.A.T. only works on issues assigned to the `gh` user |
-| Group or epic | Milestone. G.O.A.T. shows it and lets `add` set it |
-| Task ID (`SFP-14`) | The issue number. Branches are `goat/<number>-<slug>` |
-| Claim, Claim expires, GitHub link, Goat summary | One "goat state" comment: JSON in a hidden HTML comment, with a short readable view |
-| Doc column (long text) | "Doc" comments, one per section, with a hidden title marker. A section with the same title is updated in place |
-| Updates | The comment thread |
-| Board automations | None needed: the coordinator moves a merged issue to `stage:staging` |
+| Stage | One `stage:*` label. A closed issue is done |
+| Status (what it waits on) | At most one `goat:*` label. No `goat:` label means G.O.A.T. ignores the issue |
+| Size and priority | `size:*` and `prio:*` labels |
+| Owner | The assignee. G.O.A.T. only works on issues assigned to the `gh` user |
+| Grouping | The milestone. G.O.A.T. shows it, and `add` can set it |
+| Identity | The issue number. Branches are `goat/<number>-<slug>` |
+| Claim, claim expiry, PR link, short summary | One "G.O.A.T. state" comment: JSON inside a hidden HTML comment, followed by a short readable view |
+| Long stage outputs | "Doc" comments, one per section, each with a hidden title marker. Writing a section whose title exists updates it in place |
+| Conversation | The ordinary comment thread |
 
-The label names are fixed (`goat/board.py`). `goat.py setup-repo` creates them, and `claim` refuses to start if one is missing.
+Label names are defined once, in `goat/board.py`. `goat.py setup-repo` creates them, and `claim` refuses to start when one is missing.
 
-### Why labels and a hidden comment
-
-Labels are visible, filterable and editable by hand on every GitHub screen, which is how people hold the gates. A label change is one call, and it removes the old label of the same kind in the same call. The claim does not fit a label (it holds a session id and a time), so it lives in a comment that only `goat.py` writes.
+**Why labels plus one hidden comment.** Labels are visible, filterable and editable by hand on any GitHub screen, which is exactly how people operate the gates. One call changes a label and removes the old label of the same kind. A claim does not fit in a label because it holds a session id and a time, so it sits in a comment that only `goat.py` writes.
 
 ## Claims
 
-GitHub has no compare-and-set, so a claim is written and then read back, as in the original:
+GitHub offers no compare-and-set, so a claim is written and then read back:
 
-1. `claim` reads the issue, checks that the issue is a G.O.A.T. issue, is assigned to this user, and is ready for the role, and checks that the repo has every label.
-2. It writes the state comment (claim `role|session`, expiry), then the labels (`goat:working`, and the new stage after an approved gate).
+1. `claim` reads the issue and checks that it is a G.O.A.T. issue, assigned to this user and ready for the role, and that the repo has every label.
+2. It writes the state comment (claim as `role|session`, plus the expiry), then the labels (`goat:working`, and the new stage after an approved gate).
 3. It reads the issue again. If the claim is not this session's, it stops with exit code 5 ("claim lost").
 
-Every later write (`renew`, `post`, `doc`, `summary`, `release`) reads the issue first and stops with exit code 5 if the claim is not this session's or a person changed G.O.A.T. label.
+Every later write (`renew`, `post`, `doc`, `summary`, `release`) first re-reads the issue and stops with exit code 5 if the claim is no longer this session's, or if a person changed the `goat:` label.
 
-A crashed agent leaves `goat:working` with a claim that expires (10 minutes for intake, 30 plan, 60 implement, 15 review). After that, the stage's agent can take over and reads the last handoff first. Two sessions that claim within the same second can still race: the read-back catches most of it, as before.
+A crashed agent leaves `goat:working` with a claim that eventually expires (10 minutes for intake, 30 for plan, 60 for implement, 15 for review). The stage's agent can then take over, after reading the last handoff. Two sessions claiming in the same second can still race; the read-back catches most such cases.
 
-**Release** posts the handoff, then writes the labels, then clears the claim. If it fails between the last two writes, the same session can run `release` again: it sees the labels already moved and its own claim, finishes the state write and does not post the handoff twice.
+**Release** posts the handoff, writes the labels, then clears the claim. If it fails between the last two writes, the same session can run `release` again: it recognises the moved labels and its own claim, finishes the state write, and does not post the handoff twice.
 
 ## Human gates
 
-| Gate | A person sees | Approve | Request changes |
+| Gate | A person sees | To approve | To request changes |
 | --- | --- | --- | --- |
-| Tier review | `goat:tier-review`, the size label, the intake summary | Swap to `goat:approved` (change `size:*` first to override) | Comment, swap to `goat:ready` |
-| Plan review | `goat:plan-review`, the "Spec and plan" doc | Swap to `goat:approved` | Comment, swap to `goat:ready` |
-| Merge review | `goat:merge-review`, the review notes, a ready PR | Merge the PR. The coordinator moves the issue to `stage:staging` | Comment, swap `stage:review` to `stage:implement` and `goat:merge-review` to `goat:ready` |
-| Question | `goat:answer-question`, the agent's comment | Answer in a comment, swap to `goat:ready` | |
-| Chat | `goat:chat`, a comment with the resume command | `goat.py chat <number>` | |
+| Size | `goat:tier-review`, the size label, the intake summary | Swap to `goat:approved` (change the `size:*` label first to override) | Comment, then swap to `goat:ready` |
+| Plan | `goat:plan-review`, the "Spec and plan" Doc section | Swap to `goat:approved` | Comment, then swap to `goat:ready` |
+| Merge | `goat:merge-review`, the review notes, a ready PR | Merge the PR; the coordinator moves the issue to `stage:staging` | Comment, then swap `stage:review` for `stage:implement` and `goat:merge-review` for `goat:ready` |
+| Question | `goat:answer-question` and the agent's comment | Answer in a comment, then swap to `goat:ready` | |
+| Chat | `goat:chat` and a comment with the resume command | Run `goat.py chat <number>` | |
 
-When an agent hands an issue to a person, the comment ends with an @mention of the assignee. While agents use your own `gh` login, GitHub does not notify you of your own comments, so the mention is a visible marker only. To get real notifications, run the agents under a separate bot login (see "Open decisions").
+When an agent hands an issue to a person, its comment ends with an @mention of the assignee. While agents use your own `gh` login GitHub does not notify you about your own comments, so the mention is only a visible marker; a separate bot login for the agents makes it a real notification (see "Open decisions").
 
 ## Stalled issues and the health check
 
-Two things that go wrong quietly, and what the factory does about them.
+Two failures that would otherwise be silent.
 
-**A stalled issue.** When an agent runs on an issue and the issue does not change, the coordinator tries again, but at most twice (the attempt cap). Before, it then only wrote a line in its log. Now, on the turn that hits the cap, the coordinator (`escalate_stalled` in `goat/coordinator.py`):
+**A stalled issue.** When an agent runs on an issue and nothing about the issue changes, the coordinator retries, but at most twice. On the turn that reaches that cap, `escalate_stalled` (in `goat/coordinator.py`):
 
-1. Replaces the issue's `goat:` label with `goat:stalled`. This goes first: if the repo has no such label, nothing else is posted, and the next turn tries again without spamming comments.
-2. Comments on the issue, @mentioning the owner: which agent ran, how often, the stage, G.O.A.T. status before, and the path of the latest agent log on this machine, plus how to retry.
-3. Shows a desktop notification (`goat/notify.py`, macOS `osascript` or Linux `notify-send`, text passed as arguments so an issue title cannot run as code). `"notifications": false` turns it off.
+1. Swaps the issue's `goat:` label for `goat:stalled`. This goes first: if the repo lacks that label, nothing else is posted, and the next turn tries again without flooding the issue with comments.
+2. Comments on the issue, @mentioning the owner, with the agent, the number of runs, the stage, the previous status, the path of the latest agent log on this machine, and how to retry.
+3. Shows a desktop notification (`goat/notify.py`: `osascript` on macOS, `notify-send` on Linux; the text is passed as arguments, so an issue title cannot run as code). `"notifications": false` turns it off.
 
-A person retries by replacing `goat:stalled` with `goat:ready`. The label change also changes the attempt key, so the count starts again. Agents can never set `stalled` (it is not a release status).
+A person retries by swapping `goat:stalled` for `goat:ready`; that also changes the attempt key, so counting restarts. Agents cannot set `stalled`, because it is not a release status.
 
-**A dead coordinator.** The coordinator writes a heartbeat file (`goat/health.py`) at start, every ~15 seconds while it waits, around each turn, and when it stops on purpose. `goat.py health` combines the file with a check that the process is alive and returns running, stale, died, stopped or never (see the README). The file is written atomically, write errors never stop the coordinator, dry runs write nothing, and a stop signal (Ctrl-C or SIGTERM) is recorded as a stop on purpose, so only a real death looks like one. The factory does not restart the coordinator by itself: starting agents is a decision for the person who owns the laptop, and a crash loop would spend money. `health --notify` is made for a scheduled job.
+**A dead coordinator.** The coordinator writes a heartbeat file (`goat/health.py`) at start, about every 15 seconds while idle, around each turn, and when it stops on purpose. `goat.py health` combines that file with a liveness check of the process and answers running, stale, died, stopped or never (see the README). The write is atomic, a failed write never stops the coordinator, dry runs write nothing, and a stop signal (Ctrl-C or SIGTERM) is recorded as a deliberate stop, so only a real death looks like one. G.O.A.T. does not restart the coordinator by itself: starting agents is a decision for whoever owns the laptop, and a crash loop would burn money. `health --notify` is meant for a scheduled job.
 
 ## Merge detection
 
-A merged PR is a native GitHub event, so the coordinator checks for it each turn (`goat/merge.py`). For each of your issues at `goat:merge-review`, it finds merged PRs on `goat/<number>-*` branches. It moves the issue only when the issue's PR link (the bottom PR of a stack) is among them, and no `goat/<number>-*` branch still has an open PR. It posts a comment and sets `stage:staging` with no `goat:` label. PR bodies say `Refs #<number>`, never `Closes`, so a merge does not close the issue: closing is a person's step and starts the retro. `"autoAdvanceMerged": false` in the config turns this off.
+A merged PR is a native GitHub event, so the coordinator looks for it each turn (`goat/merge.py`). For each of your issues at `goat:merge-review` it looks for merged PRs on `goat/<number>-*` branches. It moves the issue only when the PR stored on the issue (the bottom PR of a stack) is among them and no `goat/<number>-*` branch still has an open PR. It then posts a comment and sets `stage:staging` with no `goat:` label. PR bodies say `Refs #<number>`, never `Closes`, so merging does not close the issue: closing is a person's step and starts the retro. `"autoAdvanceMerged": false` in the config turns this off.
 
 ## Safety
 
-The layers are the same as in the original: deny rules in `agent-settings.json` (headless agents only), checks in code, rules in the protocol and skills, and the auto-mode classifier. What differs:
+Safety comes in layers: deny rules in `agent-settings.json` (headless agents only), checks in code, rules in the protocol and skills, and the automatic permission classifier.
 
-- Agents reach GitHub issues only through `goat.py`. `gh api`, `gh issue`, `gh label`, `gh project`, `curl` against `api.github.com`, and GitHub MCP write tools are denied. `goat.py` itself runs `gh` as a subprocess, which the agent's deny rules do not see.
-- Agents may run the read-only `gh pr view`, `diff`, `list` and `checks`, and the PR commands the protocol lists. They may not merge, close, approve or request changes.
-- Building and releasing the app is denied: `eas build`, `eas submit`, `eas update`, `fastlane`, store uploads. Remote database CLIs and hosting CLIs stay denied.
-- In code: only `release` statuses an agent may set (never `approved`, `working` or `done`), `add --ready` refused for headless agents, ownership and claim checks, and the cleanup's "nothing can be lost" checks.
-- Deny rules match command text. They are a second line of defense, not a boundary. Interactive sessions do not use `agent-settings.json`.
+- Agents reach issues only through `goat.py`. `gh api`, `gh issue`, `gh label`, `gh project`, `curl` against `api.github.com`, and GitHub MCP write tools are denied. `goat.py` itself runs `gh` as a subprocess, which the agent's deny rules never see.
+- Agents may run the read-only `gh pr view`, `diff`, `list` and `checks`, plus the PR commands the protocol lists. They may not merge, close, approve or request changes.
+- Building and releasing the app is denied (`eas build`, `eas submit`, `eas update`, `fastlane`, store uploads), as are remote-database and hosting CLIs.
+- In code: an agent can only set the statuses `release` allows (never `approved`, `working` or `done`), `add --ready` is refused for headless agents, ownership and claim are checked on every write, and the cleanup runs its "nothing can be lost" checks before it removes anything.
+- Deny rules match command text, so they are a second line of defense rather than a boundary. Interactive sessions do not load `agent-settings.json`.
 
-## What changed from the original, beyond the swap
+## Other design points
 
-These are the "free wins" that GitHub makes cheap. Each is small and isolated:
-
-1. **Issue numbers.** A direct lookup. The original read the whole board to resolve a Task ID.
-2. **An @mention** in a handoff that reaches a person.
-3. **Review reads `gh pr checks`.** A failing check that the change caused is a `must fix`. The verdict line shows `CI: pass | fail | pending | none`.
-4. **Merge detection** (above).
-5. **Retries.** `goat/github.py` retries rate limits and network errors twice before it fails. The original Monday client did not retry.
-6. **No 2,000-character split.** The summary is still limited to 2,000 characters, to stay short, but the full text is never cut.
-
-Not changed on purpose: the gate rules are still applied by agents (not enforced in `release`), CI status is not required for `merge-review`, and the attempt cap and stale-claim design are as before.
+- **Issue numbers** make lookups direct: one call, no scanning of a board.
+- **Review reads `gh pr checks`.** A failing check that the change caused is a `must fix`, and the verdict line shows `CI: pass | fail | pending | none`.
+- **Retries.** `goat/github.py` retries rate limits and network errors twice before failing.
+- **The summary is capped at 2,000 characters** to stay short; the full text always lives in the Doc sections and is never cut.
+- **Gate rules are applied by agents**, not enforced inside `release`, and CI status is not required for `merge-review`.
 
 ## Known limits
 
 - The claim is not atomic (see Claims).
 - `board_items` reads at most 500 issues that carry a `goat:` or `stage:` label, newest first. A repo with more needs paging.
-- Run records, attempt counts, retro notes and claim records are local to one machine, as in the original. A second machine cannot `chat`, retro or count attempts.
-- The coordinator trusts process ids with no start-time check (a reused pid looks alive). `goat.py health` has the same weakness: it reports "running" only while the heartbeat is also fresh, which makes a false positive unlikely but not impossible.
-- The heartbeat shows the coordinator is alive, not that it is doing useful work: a coordinator that is stuck inside one turn goes stale after 5 minutes, but one that loops without progress does not.
+- Run records, attempt counts, retro notes and claim records live on one machine. A second machine cannot `chat`, run a retro, or count attempts.
+- The coordinator trusts process ids with no start-time check, so a reused pid looks alive. `goat.py health` shares this weakness, but it reports "running" only while the heartbeat is also fresh, which makes a false positive unlikely, not impossible.
+- The heartbeat proves the coordinator is alive, not that it makes progress: a coordinator stuck inside one turn goes stale after 5 minutes, but one that loops without progress does not.
 - A person's label edit between two agent writes is caught by the next write's check, not before.
-- Comments are limited to 65,536 characters by GitHub. A spec longer than that must be split into two doc sections.
+- GitHub limits a comment to 65,536 characters, so a longer spec must be split into two Doc sections.
 
 ## Open decisions
 
-- **Agent identity.** Agents use your own `gh` login for now. A separate bot account would give real notifications and clear attribution, and would let you approve a PR yourself. It needs a second account, a token (`GH_TOKEN` for the coordinator), and collaborator access. The code needs no change: `gh` takes the login from `GH_TOKEN`.
-- **App repo and stack.** The app repo does not exist yet. Nothing in the factory depends on the stack. The Plan agent learns test, lint and run commands from the project repo's `CLAUDE.md`, so write them there when the repo exists. If the app uses Expo, the `eas` denies already apply.
+- **Agent identity.** Agents currently act as your own `gh` login. A separate bot account would give real notifications and clear attribution, and would let you approve a PR yourself. It needs a second account, a token (`GH_TOKEN` for the coordinator) and collaborator access. The code needs no change, because `gh` takes the login from `GH_TOKEN`.
+- **The Supabase schema and the app's first screens** are still backlog issues in the app repo. G.O.A.T. does not depend on the app's stack: the Plan agent learns the test, lint and run commands from the project's own `CLAUDE.md`.

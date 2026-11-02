@@ -14,7 +14,7 @@ HELP_TEXT = """exit codes:
   1  other failure (setup-repo --check also exits 1 when it finds problems)
   2  bad usage (wrong command or arguments)
   3  configuration missing: the repo, the `gh` login, or the session id
-  4  item not available: not found, not a goat issue, not assigned to you, or not ready for this role
+  4  item not available: not found, not a G.O.A.T. issue, not assigned to you, or not ready for this role
   5  claim conflict: another session claimed the issue, or a person changed it. Stop work.
   6  GitHub API error (gh failed, rate limit, no network)
 

@@ -1,10 +1,10 @@
 # Review notes template
 
-The shape of the Review agent's notes. Use it for the Doc section, the issue `note` comment, and the PR review on GitHub. Fill it in; do not add sections.
+This is the layout for everything the Review agent writes up: the Doc section, the `note` comment on the issue, and the review comment on each PR. Fill in the blanks. Do not invent extra sections.
 
-## Skeleton
+## Layout
 
-Sections in this order. Leave out "Since round N" in round 1.
+The order is fixed. In round 1, drop the "Since round" section.
 
 ````markdown
 **<Ready for merge review | Changes needed>** · round <n> · <a> must fix, <b> suggestions · tests: <result> · CI: <result>
@@ -12,19 +12,19 @@ Sections in this order. Leave out "Since round N" in round 1.
 ## Since round <n - 1>
 
 - F2 fixed
-- F3 not fixed: <why, one line>
+- F3 not fixed: <reason, one line>
 
 ## Acceptance criteria
 
 <X> of <Y> pass
 
-- pass: <short label> (<evidence: test name or file>)
+- pass: <short label> (<proof: a test name or a file>)
 - fail: <short label> (see F4)
 
 ## Findings
 
-- **F4 must fix** `path/file.py:42`. Given <input or state>, you get <wrong result>. Do: <what to change>.
-- **F5 suggestion** `path/other.py:10`. Missed implication: <what the spec implies>, but <what the code skips>. Do: <what to change>.
+- **F4 must fix** `path/file.py:42`. With <input or state>, the result is <wrong outcome>. Do: <the change to make>.
+- **F5 suggestion** `path/other.py:10`. Missed implication: <what the spec implies>, but <what the code leaves out>. Do: <the change to make>.
 
 ## How to verify
 
@@ -37,37 +37,37 @@ Sections in this order. Leave out "Since round N" in round 1.
 
 ## Also checked
 
-- Plan: <follows the plan, or which checkpoint explains the change>
-- Scope: <no extra changes, or which ones and why they are safe>
-- Safety: <no secrets, remote changes or missing gate hits>
+- Plan: <matches the plan, or the checkpoint that explains the difference>
+- Scope: <nothing extra, or what was added and why it is safe>
+- Safety: <no secrets, no remote changes, no missing gate hits>
 ````
 
-## Rules
+## Field rules
 
-- **Verdict line.** `Ready for merge review` when there is no open `must fix`, otherwise `Changes needed`. The test result is `N pass`, `N pass, M fail`, or `not run (<why>)`. The CI result is `pass`, `fail (<check names>)`, `pending` or `none`.
-- **Since round N.** One line for each finding that was open in the last round: `fixed`, or `not fixed` with why. Fixed findings leave the Findings list and show only here.
-- **Acceptance criteria.** One line each. The label has 3 to 8 words and names the criterion; it does not restate the spec. The evidence is a test name or a file. A failed criterion points to its finding ID.
-- **Findings.** One list, `must fix` first. Each has its ID, severity, `file:line`, "Given X, you get Y", and "Do:". Missed implications and scope creep use the same shape, with the kind at the start of the text. Write "None." when there are no findings.
-- **How to verify.** The shortest steps a person at Merge review can follow to see the change work.
-- **Also checked.** One short line each. A problem here is also a finding. If the plan or a handoff asks the Review agent an open question, answer it here in one more line.
-- **Plain Markdown.** Headings, `-` and numbered lists, bold, links and fenced code only. No tables, no `[x]` checkboxes, so the notes read the same in the Doc, in the issue and on the PR.
-- **No praise, no summary of the diff.** The PR has its own summary.
+- **Headline.** Write `Ready for merge review` if no `must fix` is open. Otherwise write `Changes needed`. Tests read `N pass`, `N pass, M fail`, or `not run (<why>)`. CI reads `pass`, `fail (<check names>)`, `pending` or `none`.
+- **Since round N.** List every finding that was open last round, one line each: `fixed`, or `not fixed` plus the reason. A fixed finding appears only here and leaves the Findings list.
+- **Acceptance criteria.** One line per criterion. The label is 3 to 8 words that name the criterion without repeating the spec. The proof is a test name or a file. A failing criterion points at its finding ID.
+- **Findings.** A single list with every `must fix` before any suggestion. Each entry carries the ID, the severity, `file:line`, the failure scenario, and "Do:". Missed implications and scope creep follow the same pattern, with their kind named first. If there are no findings, write "None."
+- **How to verify.** The fewest steps a person at merge review needs to watch the change work.
+- **Also checked.** One short line per item. A problem found here is also a finding. If the plan or a handoff leaves the Review agent an open question, answer it with one more line here.
+- **Plain Markdown only.** Use headings, `-` and numbered lists, bold, links and fenced code. No tables and no `[x]` checkboxes, so the text looks identical in the Doc, on the issue and on the PR.
+- **Leave out praise and diff recaps.** The PR already has its own description.
 
-## Per-PR form for a stack
+## Stack form, one comment per PR
 
-Each PR in a stack gets its own review comment:
+When the work is a stack, each PR gets its own comment holding:
 
-- The issue's verdict line.
-- `## Acceptance criteria` with only the criteria that PR covers (from the plan's PR plan). The count is for that PR.
-- `## Findings` with only that PR's findings. A finding goes on the PR whose diff has its `file:line`. A finding that spans PRs goes on the earliest PR that has the cause.
-- `## How to verify` on the top PR only.
-- A last line: `Full notes for all PRs: <issue link>`.
+- The issue-wide headline.
+- `## Acceptance criteria`, limited to the criteria that PR covers (per the plan's PR plan), with the count for that PR.
+- `## Findings`, limited to findings for that PR. A finding belongs to the PR whose diff contains its `file:line`. If it crosses PRs, put it on the earliest PR containing the cause.
+- `## How to verify`, on the top PR only.
+- A closing line: `Full notes for all PRs: <issue link>`.
 
-A single PR gets the full notes.
+A lone PR gets the full notes.
 
-## Example
+## Worked example
 
-Round 2 of a made-up change that adds a `--json` flag to a `list` command.
+Round 2 of an invented change that adds a `--json` flag to a `list` command.
 
 ````markdown
 **Changes needed** · round 2 · 1 must fix, 1 suggestion · tests: 112 pass · CI: pass
@@ -75,7 +75,7 @@ Round 2 of a made-up change that adds a `--json` flag to a `list` command.
 ## Since round 1
 
 - F1 fixed
-- F2 not fixed: the empty list still prints a header line
+- F2 not fixed: an empty list still prints a header line
 
 ## Acceptance criteria
 
@@ -88,13 +88,13 @@ Round 2 of a made-up change that adds a `--json` flag to a `list` command.
 
 ## Findings
 
-- **F2 must fix** `goat/cli.py:88`. Given a repo with no goat issues, `list --json` prints `Items:` and then `[]`, so the output is not valid JSON. Do: return before the header when `--json` is set.
-- **F3 suggestion** `goat/cli.py:95`. Missed implication: the spec says "every list command", but `list --mine --json` skips the new path. Do: check `--json` after the `--mine` filter.
+- **F2 must fix** `goat/cli.py:88`. With a repo that has no goat issues, `list --json` prints `Items:` and then `[]`, which is not valid JSON. Do: return before the header whenever `--json` is set.
+- **F3 suggestion** `goat/cli.py:95`. Missed implication: the spec says "every list command", yet `list --mine --json` bypasses the new path. Do: test `--json` after the `--mine` filter runs.
 
 ## How to verify
 
 1. Run the tests.
-2. Run `list --json` with no goat issues and check that the output is `[]`.
+2. Run `list --json` in a repo with no goat issues and confirm it prints `[]`.
 
 ```sh
 python3 -m unittest discover -s goat/tests -t . -v
@@ -103,7 +103,7 @@ python3 goat.py list --json | python3 -m json.tool
 
 ## Also checked
 
-- Plan: follows the plan
-- Scope: no extra changes
+- Plan: matches the plan
+- Scope: nothing extra
 - Safety: no secrets, remote changes or gate hits
 ````

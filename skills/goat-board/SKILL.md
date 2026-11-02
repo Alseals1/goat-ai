@@ -1,24 +1,29 @@
 ---
 name: goat-board
-description: Show this developer's G.O.A.T. AI issues in the project's GitHub repo, and what to run next. Use when asked what is on G.O.A.T. board, what work is waiting, or which G.O.A.T. AI agent to start. Also holds the board protocol that the goat-intake, goat-plan, goat-implement and goat-review skills follow.
+description: Show this developer's G.O.A.T. AI issues in the project's GitHub repo, and what to run next. Use when asked what is on the board, what work is waiting, or which G.O.A.T. agent to start. This folder also holds protocol.md, the rules every G.O.A.T. role skill follows.
 model: haiku
 ---
 
 # G.O.A.T. AI board status
 
-Run this in a project repo. The board is that project's GitHub Issues.
+Use this inside a project repo. The board is that repo's GitHub Issues. This skill only reads: it never claims, labels or changes an issue.
 
-1. Follow section 1 of [protocol.md](protocol.md): check that `~/.goat-ai/goat.py` exists.
-2. Run `python3 ~/.goat-ai/goat.py list --mine`. Each line has: issue number, title, stage, goat status, size, and the next step. Issues that wait for a person come first.
-3. Show the result as a short table:
+## Steps
 
-   | Issue | Title | Stage | G.O.A.T. status | Next |
+1. Check that `~/.goat-ai/goat.py` exists (protocol section 1). If it does not, say so and stop.
+2. Run `python3 ~/.goat-ai/goat.py list --mine`. Each line shows the issue number, title, stage, status, size and the next step. Lines that wait for a person come first.
+3. Present the lines as a compact table:
+
+   | Issue | Title | Stage | Status | Next |
    | --- | --- | --- | --- | --- |
 
-   For **Next**, use the next step from `list`:
-   - "run /goat-<role> <id>": the command to run in this repo. For `implement`, put the model first: `/model sonnet` for size S, `/model opus` for M and L.
-   - "waits for a person": what the issue waits for. A gate is approved by replacing its label with `goat:approved`. A question is answered in a comment on the issue, then the label is replaced with `goat:ready`. For `goat:chat`, the developer runs `python3 ~/.goat-ai/goat.py chat <number>` in a terminal to resume the agent's session.
-   - "agent working": the role that holds the claim, and when it expires.
-   - At merge review: "Merge the PR on GitHub": the coordinator then moves the issue to `stage:staging`. To ask for changes instead: comment, then replace `stage:review` with `stage:implement` and `goat:merge-review` with `goat:ready`.
+## Filling in the "Next" column
 
-This skill only reads the board. It never claims or changes issues.
+Translate the next step from `list` like this:
+
+| `list` says | Write |
+| --- | --- |
+| `run /goat-<role> <number>` | The command to run in this repo. For `implement`, put the model switch first: `/model sonnet` for size S, `/model opus` for M and L. |
+| `waits for a person` | What the person must do: approve a gate by swapping its label for `goat:approved`; answer a question in a comment and then swap the label for `goat:ready`; for `goat:chat`, run `python3 ~/.goat-ai/goat.py chat <number>` in a terminal; for `goat:stalled`, read the agent log named in the issue's comment, then set `goat:ready` to retry |
+| `agent working` | Which role holds the claim and when it expires |
+| merge review | "Merge the PR on GitHub." The coordinator then moves the issue to `stage:staging`. To ask for changes instead: comment, swap `stage:review` for `stage:implement`, and swap `goat:merge-review` for `goat:ready` |
