@@ -1,0 +1,35 @@
+{
+  "leaseMinutes": 30,
+  "leaseMinutesByStage": {
+    "intake": 10,
+    "plan": 30,
+    "implement": 60,
+    "review": 15
+  },
+  "tiers": {
+    "S": {
+      "tierGate": true,
+      "planGate": false
+    },
+    "M": {
+      "tierGate": true,
+      "planGate": true
+    },
+    "L": {
+      "tierGate": true,
+      "planGate": true,
+      "stackedPrs": true
+    },
+    "XL": {
+      "tierGate": true,
+      "planGate": true,
+      "split": true
+    }
+  },
+  "alwaysGate": [
+    "database migration",
+    "authentication or permissions",
+    "CI or deployment settings",
+    "new dependency"
+  ]
+}
