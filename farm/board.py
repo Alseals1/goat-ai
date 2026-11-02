@@ -256,15 +256,16 @@ class FarmItem:
 
     @property
     def is_farm_item(self):
-        """Only issues with a farm: label are farm items that the coordinator handles. The farm never touches the others."""
-        return bool(self.farm_status.strip())
+        """Only open issues with a farm: label are farm items that the coordinator handles. The farm never touches the
+        others. A closed issue is finished, even when a person closed it while it still had a gate label."""
+        return bool(self.farm_status.strip()) and self.status != DONE_STATUS
 
     @property
     def farm_touched(self):
         """True for an issue the farm has worked on: it has a farm: label, or a stage past the backlog.
         After the merge the farm: label is gone, but the issue is still the farm's, for the retro and the cleanup."""
         past_backlog = [name[len(STAGE_PREFIX):] for name in self.labels if name.startswith(STAGE_PREFIX)]
-        return self.is_farm_item or any(stage != DISCOVERY for stage in past_backlog)
+        return bool(self.farm_status.strip()) or any(stage != DISCOVERY for stage in past_backlog)
 
     @property
     def claim_role(self):

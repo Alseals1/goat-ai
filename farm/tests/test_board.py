@@ -34,6 +34,12 @@ class FromGitHubTests(unittest.TestCase):
         self.assertFalse(item_from(stage="discovery", farm_status="").is_farm_item)
         self.assertTrue(item_from(farm_status="ready").is_farm_item)
 
+    def test_a_closed_issue_is_not_a_farm_item_even_with_a_gate_label(self):
+        # A person closed it at plan review: it is finished, so the coordinator and `list` must ignore it.
+        closed = item_from(stage="plan", farm_status="plan-review", state="closed")
+        self.assertFalse(closed.is_farm_item)
+        self.assertTrue(closed.farm_touched)  # but the retro and the cleanup still handle it
+
     def test_farm_touched(self):
         self.assertFalse(item_from(stage="discovery", farm_status="").farm_touched)
         self.assertFalse(item_from(stage="", farm_status="").farm_touched)
