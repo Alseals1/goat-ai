@@ -159,14 +159,29 @@ class GitHubClient:
         return items
 
     def pull_requests(self, state, limit=100):
-        """PRs in a state ("open" or "merged") as [{"number", "url", "branch", "mergedAt"}].
+        """PRs in a state ("open" or "merged") as [{"number", "url", "branch", "base", "mergedAt"}]. `base` is the
+        branch the PR merges into: for a merged PR in a stack it can be another stack branch, not the default branch.
 
         The coordinator matches the goat/<number>-* branches to issues. Only recent PRs are listed (`limit`).
         """
         out = self.gh(["pr", "list", "--repo", self.repo, "--state", state, "--limit", str(limit),
-                       "--json", "number,url,headRefName,mergedAt"])
-        return [{"number": pr["number"], "url": pr["url"], "branch": pr["headRefName"], "mergedAt": pr.get("mergedAt")}
+                       "--json", "number,url,headRefName,baseRefName,mergeCommit,mergedAt"])
+        return [{"number": pr["number"], "url": pr["url"], "branch": pr["headRefName"], "base": pr.get("baseRefName"),
+                 "merge_commit": (pr.get("mergeCommit") or {}).get("oid"), "mergedAt": pr.get("mergedAt")}
                 for pr in json.loads(out or "[]")]
+
+    def default_branch(self):
+        """The repo's default branch name, for example "main"."""
+        out = self.gh(["repo", "view", self.repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"])
+        name = out.strip()
+        if not name:
+            raise GitHubError("Could not read the default branch of {}.".format(self.repo))
+        return name
+
+    def commit_on_branch(self, commit, branch):
+        """True when the commit is already part of the branch (the branch is ahead of it, or identical)."""
+        status = self.gh(["api", "repos/{}/compare/{}...{}".format(self.repo, branch, commit), "--jq", ".status"]).strip()
+        return status in ("behind", "identical")
 
     # ---------- writes ----------
 

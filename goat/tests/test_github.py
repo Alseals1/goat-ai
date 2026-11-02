@@ -93,11 +93,34 @@ class ReadTests(unittest.TestCase):
         self.assertEqual(len(runner.calls), 2)
 
     def test_pull_requests(self):
-        prs = [{"number": 9, "url": "https://github.com/me/app/pull/9", "headRefName": "goat/5-thing", "mergedAt": "t"}]
+        prs = [{"number": 9, "url": "https://github.com/me/app/pull/9", "headRefName": "goat/5-thing",
+                "baseRefName": "main", "mergeCommit": {"oid": "abc123"}, "mergedAt": "t"}]
         runner = Runner((["pr", "list"], json.dumps(prs)))
         found = client(runner).pull_requests("merged")
-        self.assertEqual(found, [{"number": 9, "url": "https://github.com/me/app/pull/9", "branch": "goat/5-thing", "mergedAt": "t"}])
+        self.assertEqual(found, [{"number": 9, "url": "https://github.com/me/app/pull/9", "branch": "goat/5-thing",
+                                  "base": "main", "merge_commit": "abc123", "mergedAt": "t"}])
         self.assertEqual(runner.calls[0][0][runner.calls[0][0].index("--state") + 1], "merged")
+
+
+class BranchTests(unittest.TestCase):
+    def test_default_branch(self):
+        runner = Runner((["repo", "view"], "main\n"))
+        self.assertEqual(client(runner).default_branch(), "main")
+        self.assertEqual(runner.calls[0][0][:3], ["repo", "view", "me/app"])
+
+    def test_an_empty_default_branch_is_an_error(self):
+        with self.assertRaises(GitHubError):
+            client(Runner((["repo", "view"], "\n"))).default_branch()
+
+    def test_a_commit_is_on_the_branch_when_the_branch_is_ahead_or_identical(self):
+        for status, expected in (("behind", True), ("identical", True), ("ahead", False), ("diverged", False)):
+            runner = Runner((["api", "repos/me/app/compare/main...abc"], status + "\n"))
+            self.assertEqual(client(runner).commit_on_branch("abc", "main"), expected, status)
+
+    def test_a_pr_with_no_merge_commit_has_none(self):
+        prs = [{"number": 9, "url": "u", "headRefName": "goat/5-x", "baseRefName": "main", "mergeCommit": None,
+                "mergedAt": None}]
+        self.assertIsNone(client(Runner((["pr", "list"], json.dumps(prs)))).pull_requests("open")[0]["merge_commit"])
 
 
 class WriteTests(unittest.TestCase):

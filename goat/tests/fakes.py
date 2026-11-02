@@ -70,6 +70,9 @@ class FakeClient:
         self.milestones = {}
         self.open_prs = []
         self.merged_prs = []
+        self.default = "main"
+        # Merge commits that are part of the default branch (for PRs that were merged into another branch).
+        self.commits_on_default = set()
         self.created = []
 
     # ---------- reads ----------
@@ -99,6 +102,12 @@ class FakeClient:
 
     def pull_requests(self, state, limit=100):
         return copy.deepcopy(self.merged_prs if state == "merged" else self.open_prs)
+
+    def default_branch(self):
+        return self.default
+
+    def commit_on_branch(self, commit, branch):
+        return commit in self.commits_on_default
 
     def existing_labels(self):
         return dict(self.labels)

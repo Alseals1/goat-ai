@@ -102,7 +102,7 @@ class MergeInTickTests(unittest.TestCase):
     def test_advance_merged_boards_moves_a_merged_issue(self):
         logs = []
         client = FakeClient(raw_item("5", stage="review", goat_status="merge-review"))
-        client.merged_prs = [{"number": 9, "url": "u", "branch": "goat/5-x", "mergedAt": "t"}]
+        client.merged_prs = [{"number": 9, "url": "u", "branch": "goat/5-x", "base": "main", "merge_commit": "c", "mergedAt": "t"}]
         items = [coordinator.GoatItem.from_github(raw) for raw in client.board_items()]
         with mock.patch.object(coordinator, "log", logs.append):
             coordinator.advance_merged_boards([("/code/a", {}, client, {}, items)], "me", False)
