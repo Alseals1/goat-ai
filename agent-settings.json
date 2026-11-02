@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3 */farm.py *)",
+      "Bash(python3 */goat.py *)",
       "Bash(gh stack *)",
       "Bash(gh pr view *)",
       "Bash(gh pr diff *)",
@@ -9,14 +9,14 @@
       "Bash(gh pr checks *)"
     ],
     "deny": [
-      "Bash(python3 */farm.py run*)",
-      "Bash(python3 */farm.py stop*)",
-      "Bash(python3 farm.py run*)",
-      "Bash(python3 farm.py stop*)",
-      "Bash(python3 */farm.py add *--ready*)",
-      "Bash(python3 farm.py add *--ready*)",
-      "Bash(python3 */farm.py update*)",
-      "Bash(python3 farm.py update*)",
+      "Bash(python3 */goat.py run*)",
+      "Bash(python3 */goat.py stop*)",
+      "Bash(python3 goat.py run*)",
+      "Bash(python3 goat.py stop*)",
+      "Bash(python3 */goat.py add *--ready*)",
+      "Bash(python3 goat.py add *--ready*)",
+      "Bash(python3 */goat.py update*)",
+      "Bash(python3 goat.py update*)",
       "Bash(gh pr merge *)",
       "Bash(gh pr close *)",
       "Bash(gh pr reopen *)",

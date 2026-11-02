@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Sets up Software Farm for one developer:
-#   1. Links the skills (farm and farm-*) into ~/.claude/skills, so every Claude Code session can use them.
-#   2. Links ~/.software-farm/farm.py to this repo's farm.py. The skills call the farm CLI by that path.
-#   3. Creates ~/.software-farm/config.json for the coordinator (local checkouts of project repos), with
+# Sets up G.O.A.T. AI for one developer:
+#   1. Links the skills (goat and goat-*) into ~/.claude/skills, so every Claude Code session can use them.
+#   2. Links ~/.goat-ai/goat.py to this repo's goat.py. The skills call G.O.A.T. CLI by that path.
+#   3. Creates ~/.goat-ai/config.json for the coordinator (local checkouts of project repos), with
 #      default limits. An existing config with no coordinator.maxAgentsByRole gets the default role caps added.
 #
 # Usage: scripts/install.sh
-# Each project repo needs a GitHub repo for its issues (its `origin` remote, or FARM_GITHUB_REPO in its .env),
-# and the farm's labels: run `farm.py setup-repo` there once. The `gh` CLI must be installed and logged in.
+# Each project repo needs a GitHub repo for its issues (its `origin` remote, or GOAT_GITHUB_REPO in its .env),
+# and G.O.A.T.'s labels: run `goat.py setup-repo` there once. The `gh` CLI must be installed and logged in.
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SKILLS_DIR="$HOME/.claude/skills"
-CONFIG_DIR="$HOME/.software-farm"
+CONFIG_DIR="$HOME/.goat-ai"
 # Default per-role agent caps for the coordinator. With maxAgents 3, no single role can take every slot.
-# retro: the Done item retros (skills/farm-retro), one at a time.
+# retro: the Done item retros (skills/goat-retro), one at a time.
 DEFAULT_ROLE_CAPS='{ "intake": 2, "plan": 2, "implement": 2, "review": 2, "retro": 1 }'
 
 mkdir -p "$SKILLS_DIR"
@@ -34,8 +34,8 @@ for skill in "$REPO_DIR"/skills/*/; do
 done
 
 mkdir -p "$CONFIG_DIR"
-ln -sfn "$REPO_DIR/farm.py" "$CONFIG_DIR/farm.py"
-echo "Linked: $CONFIG_DIR/farm.py"
+ln -sfn "$REPO_DIR/goat.py" "$CONFIG_DIR/goat.py"
+echo "Linked: $CONFIG_DIR/goat.py"
 
 CONFIG_FILE="$CONFIG_DIR/config.json"
 if [ -e "$CONFIG_FILE" ]; then
@@ -73,7 +73,7 @@ fi
 if ! command -v gh >/dev/null 2>&1; then
   echo "Note: the gh command is not installed. Install the GitHub CLI and run: gh auth login" >&2
 fi
-echo "Done. In each project repo, create the farm's labels on GitHub (safe to repeat):"
-echo "  python3 ~/.software-farm/farm.py setup-repo"
-echo "Then start a new Claude Code session there and run /farm-board."
+echo "Done. In each project repo, create G.O.A.T.'s labels on GitHub (safe to repeat):"
+echo "  python3 ~/.goat-ai/goat.py setup-repo"
+echo "Then start a new Claude Code session there and run /goat-board."
 echo "For the coordinator, add each project's local checkout to \"repos\" in $CONFIG_FILE."
