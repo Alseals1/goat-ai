@@ -21,6 +21,7 @@ Do these in order before your first command:
 - Confirm `~/.goat-ai/goat.py` exists. If it does not, stop and ask the developer to run `scripts/install.sh` from the G.O.A.T. AI repo.
 - Run `goat.py guide` and read it: it lists the labels, stages, statuses and commands.
 - Find out whether you run headless: `echo "${GOAT_HEADLESS:-0}"`. A `1` means the coordinator started you and nobody is reading this chat, so section 13 also applies to you.
+- Run `goat.py team --role <your role>` to learn your first name and voice (see section 5).
 - Run `goat.py rules` for the gate rules and lease lengths. Your lease is `leaseMinutesByStage[<your role>]` if that is a positive number, otherwise `leaseMinutes`, otherwise 30 minutes.
 
 `goat.py` finds the project's GitHub repo from `GOAT_GITHUB_REPO` in the repo's `.env` (read from the main checkout when you are in a worktree), or else from the `origin` remote, and it uses the developer's `gh` login. If it reports a missing setting or a login problem, stop and pass the message on.
@@ -71,6 +72,13 @@ EOF
 - `--kind` is one of `note`, `question`, `checkpoint`, `chat`. The tool adds a header line naming your role, the kind and the G.O.A.T. version. Handoffs are not posted this way: `release` posts them (section 8).
 - Posts are GitHub comments, so GitHub Markdown works: inline code, fenced blocks, lists, links, and `#12` references to other issues.
 - Write for a busy reader: short, specific, plain English. Put commands and paths in fenced blocks.
+
+**Your name and voice.** Each role is a member of a small team with a first name, shown in the header of every post (for example "Priya · Review agent"). `goat.py team --role <your role>` tells you yours and a one-line description of your voice. Use the voice lightly:
+
+- Let it colour the first sentence and the last sentence of a post, and nothing in between. Everything else stays exact and professional.
+- Never use it in code, commit messages, PR titles, review findings, plans, or any fact the next agent will rely on.
+- Never soften bad news or hide it behind a joke. A blocker, a failed test or a must-fix problem is stated plainly.
+- Never claim to be a person, and never say you did something you did not do. The role in the header always shows what you are.
 
 ## 6. Checkpoints and renewal
 

@@ -11,6 +11,8 @@ It can be turned off with "autoAdvanceMerged": false in the coordinator config.
 import re
 
 from goat import board as fb
+from goat import team
+from goat.config import load_shared
 
 BRANCH = re.compile(r"^goat/(\d+)(?:-|$)")
 
@@ -59,14 +61,15 @@ def classify(candidates, merged_prs, open_prs, on_default):
     return done, stranded
 
 
-def stranded_text(item, lost, default_branch):
+def stranded_text(item, lost, default_branch, shared=None):
     parts = ", ".join("#{} (merged into `{}`)".format(pr["number"], pr["base"]) for pr in lost)
-    return (STRANDED_MARKER + "\n**🤖 G.O.A.T.** · Part of this work is **not on `{default}` yet**: {parts}.\n\n"
+    return (STRANDED_MARKER + "\n**🤖 {who}** · Part of this work is **not on `{default}` yet**: {parts}.\n\n"
             "In a stack, a part merged into the branch below it only reaches `{default}` when that branch is merged "
             "too. The issue stays at merge review until it is. To finish: open a pull request from the top branch of "
             "the stack into `{default}` and merge it, then this issue moves on by itself. (Turning on "
             "\"Automatically delete head branches\" in the repo settings avoids this: GitHub then re-targets the "
-            "next part to `{default}` after each merge.)").format(default=default_branch, parts=parts)
+            "next part to `{default}` after each merge.)").format(default=default_branch, parts=parts,
+                                                                    who=team.dispatcher_signature(shared))
 
 
 def advance_merged(client, items, user_id, now, dry_run=False):
@@ -75,6 +78,7 @@ def advance_merged(client, items, user_id, now, dry_run=False):
     if not candidates:
         return []
     default = client.default_branch()
+    shared = load_shared()
 
     def on_default(pr):
         if pr.get("base") == default:
@@ -87,9 +91,9 @@ def advance_merged(client, items, user_id, now, dry_run=False):
         if dry_run:
             lines.append("Would move #{} to stage:staging: its PR is merged.".format(item.id))
             continue
-        client.create_comment(item.id, "**🤖 G.O.A.T.** · The PR is merged: {}\n\nMoved to stage:staging. "
+        client.create_comment(item.id, "**🤖 {}** · The PR is merged: {}\n\nMoved to stage:staging. "
                                        "Close this issue when it is done: that starts the retro and the cleanup.".format(
-                                           ", ".join(urls)))
+                                           team.dispatcher_signature(shared), ", ".join(urls)))
         add, remove = fb.label_changes(item, stage=fb.STAGING, clear_goat_status=True)
         client.set_labels(item.id, add=add, remove=remove)
         lines.append("Moved #{} to stage:staging: its PR is merged.".format(item.id))
@@ -98,5 +102,5 @@ def advance_merged(client, items, user_id, now, dry_run=False):
         lines.append("Not moving #{}: PR {} merged into another branch, so its work is not on {} yet.".format(
             item.id, ", ".join("#{}".format(pr["number"]) for pr in lost), default))
         if not dry_run and not already_told:
-            client.create_comment(item.id, stranded_text(item, lost, default))
+            client.create_comment(item.id, stranded_text(item, lost, default, shared))
     return lines

@@ -21,7 +21,7 @@ import os
 import sys
 
 from goat import board as fb
-from goat import chat, coordinator, exit_codes, health, retro_facts, retros, setup, views, views_json
+from goat import chat, coordinator, exit_codes, health, retro_facts, retros, setup, team, views, views_json
 from goat.actions import POST_KINDS, Goat, GoatError, refuse_ready_when_headless, utc_now
 from goat.cleanup import clean_up
 from goat.config import REPO_ROOT, ConfigError, load_board, load_shared, main_checkout, project_env
@@ -172,8 +172,28 @@ def command_health(args):
     else:
         print(text)
     if args.notify and state in health.ALERT_STATES:
-        notify("G.O.A.T. AI: coordinator not running", text)
+        who = team.dispatcher_name(load_shared())
+        boss = team.read_owner(coordinator.CONFIG_FILE)["name"]
+        notify("{}: the coordinator is not running".format(who), (boss + ", " if boss else "") + text[0].lower() + text[1:])
     return 0 if state == health.RUNNING else 1
+
+
+def command_team(args):
+    """Prints the team: each role's first name and voice, and the owner. Agents run it in setup to learn their voice."""
+    shared = load_shared()
+    local = {}
+    try:
+        with open(coordinator.CONFIG_FILE) as f:
+            local = json.load(f)
+    except (OSError, ValueError):
+        pass
+    if args.json:
+        roles = [args.role] if args.role else ["intake", "plan", "implement", "review", "retro", team.DISPATCHER]
+        print_json({"version": views_json.VERSION, "owner": team.owner(local),
+                    "team": {role: team.persona(shared, role) for role in roles}})
+        return
+    for line in team.lines(shared, local, args.role):
+        print(line)
 
 
 def command_version(args):
@@ -392,6 +412,11 @@ def build_parser():
     aggregate_save.add_argument("--notes", required=True, help="comma-separated note ids from retro-pending")
     aggregate_save.add_argument("--file", required=True, help="Markdown file, or - for stdin")
 
+    team_command = add("team", command_team, "show the team: each agent's first name and voice, and the owner",
+                       GOAT + " team --role plan", item=False)
+    team_command.add_argument("--role", choices=("intake", "plan", "implement", "review", "retro", "dispatcher"),
+                              help="show one role only")
+    team_command.add_argument("--json", action="store_true", help=json_help)
     add("version", command_version, "print G.O.A.T. version and commit", GOAT + " version", item=False)
     add("update", command_update, "move this G.O.A.T. install to the newest release tag", GOAT + " update", item=False)
     add("rules", command_rules, "print the shared gates and leases (goat-config.json)", GOAT + " rules", item=False)

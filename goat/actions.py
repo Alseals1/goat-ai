@@ -19,6 +19,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from goat import board as fb
+from goat import team
 from goat import exit_codes
 from goat import views
 from goat.config import CLAIMS_DIR, REPO_ROOT, RUNS_FILE, ConfigError, lease_minutes
@@ -92,9 +93,11 @@ def read_usage(session_id, since):
         return {"tokens": None, "models": None, "usageNote": "run-usage.py failed: {}".format(error)}
 
 
-def post_header(role, kind, version):
-    """The first line of an agent post, with G.O.A.T. version that made it."""
-    return "**🤖 {} agent · {} · G.O.A.T. {}**".format(role.capitalize(), kind, version)
+def post_header(role, kind, version, shared=None):
+    """The first line of an agent post: who wrote it (first name and role), what kind it is, and the version.
+
+    Review counts its rounds by looking for "Review agent · handoff", so the name goes before the role."""
+    return "**🤖 {} · {} · G.O.A.T. {}**".format(team.signature(shared, role), kind, version)
 
 
 def resume_text(item):
@@ -262,7 +265,7 @@ class Goat:
             raise GoatError("Post kind must be one of: {}.".format(", ".join(POST_KINDS)))
         item, _ = self.load(item_ref)
         self.require_own_claim(item)
-        text = post_header(item.claim_role, kind, self.version) + "\n\n" + markdown.rstrip()
+        text = post_header(item.claim_role, kind, self.version, self.shared) + "\n\n" + markdown.rstrip()
         if kind == "chat":
             text += resume_text(item)
         if kind in ("question", "chat"):
@@ -334,7 +337,7 @@ class Goat:
         resuming = not fb.same_label(item.goat_status, fb.WORKING)
         role = item.claim_role
         if not resuming:
-            text = post_header(role, "handoff", self.version) + "\n\n" + handoff.rstrip() + mention_text(item, goat_status)
+            text = post_header(role, "handoff", self.version, self.shared) + "\n\n" + handoff.rstrip() + mention_text(item, goat_status)
             self.client.create_comment(item.id, text)
             self.write_labels(item, goat_status=goat_status, stage=stage, size=size)
         changes = {"claim": "", "claimExpires": ""}

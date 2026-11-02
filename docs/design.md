@@ -72,6 +72,15 @@ A person retries by swapping `goat:stalled` for `goat:ready`; that also changes 
 
 **A dead coordinator.** The coordinator writes a heartbeat file (`goat/health.py`) at start, about every 15 seconds while idle, around each turn, and when it stops on purpose. `goat.py health` combines that file with a liveness check of the process and answers running, stale, died, stopped or never (see the README). The write is atomic, a failed write never stops the coordinator, dry runs write nothing, and a stop signal (Ctrl-C or SIGTERM) is recorded as a deliberate stop, so only a real death looks like one. G.O.A.T. does not restart the coordinator by itself: starting agents is a decision for whoever owns the laptop, and a crash loop would burn money. `health --notify` is meant for a scheduled job.
 
+## The named team
+
+Each role has a first name and a one-line voice (`agents` in `goat-config.json`; `goat/team.py` reads it). Comment headers become `🤖 Priya · Review agent · handoff · G.O.A.T. 0.1.0`, the coordinator signs as `Dex · Dispatcher`, and desktop notifications are titled with Dex's name and address the owner by the name in the local config (`owner`). It is cosmetic by design:
+
+- Nothing branches on a name. The role stays in every header, and the name goes before it, so the Review skill's round counting (it looks for "Review agent · handoff") keeps working.
+- A role with no entry in the cast keeps its plain title, so removing the section restores the old wording.
+- The voice is limited to the first and last sentence of a post. Findings, plans, code, commit messages and PR titles stay plain, bad news is never softened, and an agent never claims to be a person (protocol section 5).
+- The owner's name and title live in the local config, not in the repository.
+
 ## Merge detection
 
 A merged PR is a native GitHub event, so the coordinator looks for it each turn (`goat/merge.py`). For each of your issues at `goat:merge-review` it looks for merged PRs on `goat/<number>-*` branches. It moves the issue only when the PR stored on the issue (the bottom PR of a stack) is among them, no `goat/<number>-*` branch still has an open PR, and **every merged part has actually reached the default branch**. It then posts a comment and sets `stage:staging` with no `goat:` label.

@@ -66,6 +66,7 @@ Every command has `--help` with an example.
 | `guide` | Prints this guide |
 | `version` | Prints the version and commit |
 | `status` | Says whether the coordinator is running and lists the agents it started |
+| `team [--role R] [--json]` | Shows the team: each agent's first name and voice, and the owner |
 | `health [--json] [--notify]` | Says whether the coordinator is running, stale (asleep), died, or was stopped on purpose |
 
 **Setup and local work (only when the developer asks):**

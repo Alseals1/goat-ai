@@ -53,7 +53,9 @@ A silent no-op is the worst outcome for a beginner, because nothing tells them w
 - The dashboard can start read-only: it only needs GitHub (labels and comments) plus the run records.
 - A cheap first step: a command that writes a static status page from the same data, before any hosting.
 
-### 3. Named agents, so it feels like a real software team
+### 3. Named agents, so it feels like a real software team (first version built 2026-11-02)
+
+**Status.** Built: a cast of six first names with short voices in `goat-config.json`, signed comment headers, the dispatcher's own voice, notifications that address the owner by name, and `goat.py team`. Still open: the names on a dashboard (idea 2) and in chat messages (idea 4).
 
 **Why.** "The Plan agent" is easy to lose track of. A name and a short personality make a long thread easier to follow.
 

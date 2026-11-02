@@ -87,11 +87,11 @@ class EscalateTests(unittest.TestCase):
         self.escalate()
         self.assertEqual([l for l in self.client.labels_of(5) if l.startswith("goat:")], ["goat:stalled"])
         comment = self.client.comment_bodies(5)[-1]
-        self.assertIn("**🤖 G.O.A.T. · stalled**", comment)
+        self.assertIn("**🤖 Dex · Dispatcher · stalled**", comment)
         self.assertIn("@me", comment)
         self.assertIn("ran 2 times", comment)
         self.assertIn("replace the label `goat:stalled` with `goat:ready`", comment)
-        self.assertEqual(self.notified[0][0], "G.O.A.T. AI: stalled")
+        self.assertEqual(self.notified[0][0], "Dex: stalled")
         self.assertIn("#5 Add login", self.notified[0][1])
         self.assertTrue(any(line.startswith("Stalled: #5 Add login") for line in self.logs), self.logs)
 
@@ -250,7 +250,12 @@ class HealthCommandTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.path = os.path.join(directory.name, "heartbeat.json")
         self.notified = []
+        # The owner comes from a local config file. Never read the developer's real one in a test.
+        config_file = os.path.join(directory.name, "config.json")
+        with open(config_file, "w") as f:
+            json.dump({"owner": {"name": "Pat", "title": "CEO"}}, f)
         for patcher in (mock.patch.object(health, "HEARTBEAT_FILE", self.path),
+                        mock.patch.object(coordinator, "CONFIG_FILE", config_file),
                         mock.patch.object(cli, "notify", lambda title, message: self.notified.append((title, message)))):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -291,7 +296,8 @@ class HealthCommandTests(unittest.TestCase):
         code, out = self.run_cli("--notify")
         self.assertEqual(code, 1)
         self.assertIn("NOT running", out)
-        self.assertEqual(self.notified[0][0], "G.O.A.T. AI: coordinator not running")
+        self.assertEqual(self.notified[0][0], "Dex: the coordinator is not running")
+        self.assertTrue(self.notified[0][1].startswith("Pat, the coordinator is NOT running"), self.notified[0])
 
     def test_a_stop_on_purpose_does_not_alert(self):
         self.write(status="stopped", pid=2 ** 22 + 7)

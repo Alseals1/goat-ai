@@ -81,6 +81,27 @@ A project is a GitHub repo whose issues the factory works on, with a local check
 
 `/goat-board` shows your issues and the next command for each.
 
+## The team
+
+Every role has a first name, so a thread on an issue reads like a small team working together. The cast is in `goat-config.json` (the `agents` section):
+
+| Role | Name | Voice |
+| --- | --- | --- |
+| Intake | **Maya** | Curious and friendly; says the task back in plain words and asks one sharp question |
+| Plan | **Theo** | Calm and experienced; lays out options and says which to pick and why |
+| Implement | **Jordan** | Upbeat and quick; says what got built and what to watch |
+| Review | **Priya** | Sharp and fair; credits good work, then states what must change |
+| Retro | **Sam** | Reflective and honest; what to repeat, what to change, no blame |
+| Dispatcher (the coordinator) | **Dex** | Keeps things moving; short pings that say what needs a person |
+
+You will see them in every comment header (for example `🤖 Priya · Review agent · handoff · G.O.A.T. 0.1.0`), in the comments the coordinator writes (Dex signs merges, stalled issues and stranded stacks), and in desktop notifications.
+
+- **The role is always shown next to the name**, so nobody mistakes an agent for a person.
+- **The voice is only a light touch**: the first and last sentence of a post. Plans, code, commit messages, PR titles and review findings stay exact and professional, and bad news is never softened. This is a rule in the protocol (section 5).
+- **Change the names or voices** by editing `agents` in `goat-config.json`. A role with no entry keeps its plain title ("Plan agent"). Nothing in the logic depends on a name.
+- **The owner** (you, and your title) is set in your local config, not in the repo: add `"owner": {"name": "Alandis", "title": "CEO"}` to `~/.goat-ai/config.json`. Dex then addresses you by name in notifications.
+- `goat.py team` prints the cast, and `goat.py team --role plan` prints one role. Agents run it during setup to learn their voice.
+
 ## The labels
 
 `goat.py setup-repo` creates all of these:

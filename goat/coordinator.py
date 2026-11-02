@@ -48,14 +48,14 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from goat import health, worktrees
+from goat import health, team, worktrees
 from goat.board import DONE, STAGES, STALLED, GoatItem, label_changes, same_label
 from goat.choose import (DEFAULT_RETRO_CAP, RETRO_ROLE, STAGE_PRIORITY, choose_launches, choose_retros,
                          is_slot_limit, retro_candidates, MAX_ATTEMPTS, stalled_items)
 from goat.cleanup import clean_up
 from goat.early_ticks import EarlyTicks, TickResult
-from goat.config import (COORDINATOR_STATE_FILE, REPO_ROOT, ConfigError, board_env_names, load_board, main_checkout,
-                         project_env)
+from goat.config import (COORDINATOR_STATE_FILE, REPO_ROOT, ConfigError, board_env_names, load_board, load_shared,
+                         main_checkout, project_env)
 from goat.github import GitHubClient, GitHubError
 from goat.keys import KeyListener
 from goat.merge import advance_merged
@@ -439,11 +439,11 @@ def latest_log(item_id, role):
     return os.path.join(LOG_DIR, names[-1]) if names else None
 
 
-def stall_comment(item, role, log_path):
+def stall_comment(item, role, log_path, shared=None):
     """The comment that tells the owner an issue stopped, and how to restart it."""
     mention = "@{} ".format(item.owner_ids[0]) if item.owner_ids else ""
     lines = [
-        "**🤖 G.O.A.T. · stalled**",
+        "**🤖 {} · stalled**".format(team.dispatcher_signature(shared)),
         "",
         "{}The {} agent ran {} times on this issue and nothing changed each time, so I stopped retrying instead of "
         "spending more.".format(mention, role, MAX_ATTEMPTS),
@@ -464,6 +464,7 @@ def escalate_stalled(candidates, user_id, boards, running_items, attempts, now, 
     The label goes first. If it cannot be set (for example the repo has no goat:stalled label yet), nothing else is
     posted, and the next turn tries again without spamming comments.
     """
+    shared = load_shared()
     clients = {board[0]: board[2] for board in boards}
     for repo_path, item, role in stalled_items(candidates, user_id, running_items, attempts, now):
         name = "#{} {}".format(item.id, item.name[:60])
@@ -483,12 +484,14 @@ def escalate_stalled(candidates, user_id, boards, running_items, attempts, now, 
         log("Stalled: {} ({} agent ran {} times and changed nothing). Set goat:ready to retry.".format(
             name, role, MAX_ATTEMPTS))
         try:
-            client.create_comment(item.id, stall_comment(item, role, latest_log(item.id, role)))
+            client.create_comment(item.id, stall_comment(item, role, latest_log(item.id, role), shared))
         except GitHubError as error:
             log("Marked {} stalled, but could not comment: {}".format(name, error))
         if config["coordinator"].get("notifications", DEFAULT_NOTIFICATIONS):
-            notify("G.O.A.T. AI: stalled", "{} needs you. Agents ran {} times and changed nothing.".format(
-                name, MAX_ATTEMPTS))
+            boss = team.owner(config)["name"]
+            notify("{}: stalled".format(team.dispatcher_name(shared)),
+                   "{}{} needs you. Agents ran {} times and changed nothing.".format(
+                       boss + ", " if boss else "", name, MAX_ATTEMPTS))
 
 
 def tick(config, state, dry_run):
