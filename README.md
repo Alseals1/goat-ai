@@ -200,7 +200,7 @@ While it runs, the coordinator writes a heartbeat file every few seconds (`~/.so
 | stopped | You stopped it on purpose (Ctrl-C, `kill`, or a finished `--once` run). |
 | never | It was never started on this machine. |
 
-The exit code is 0 only for running, so scripts can use it. `health --json` prints the same as JSON. `health --notify` also shows a desktop notification for stale or died (not for stopped), so you can watch the coordinator from a scheduled job, for example a cron line every 10 minutes: `*/10 * * * * python3 $HOME/.software-farm/farm.py health --notify`. The farm does not install that schedule for you.
+The exit code is 0 only for running, so scripts can use it. `health --json` prints the same as JSON. `health --notify` also shows a desktop notification for stale or died (not for stopped), so you can watch the coordinator from a scheduled job. On macOS, cron has no desktop session, so its notifications may silently not appear: use a launchd LaunchAgent (it runs in your login session), or just run `farm.py health --notify` by hand. The farm does not install any schedule for you.
 
 If the coordinator cannot read GitHub several turns in a row, `health` says so.
 
