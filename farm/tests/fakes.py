@@ -10,7 +10,7 @@ network. Test hooks:
 import copy
 
 from farm import board as fb
-from farm.github import ItemNotFound, is_farm_issue
+from farm.github import GitHubError, ItemNotFound, is_farm_issue
 
 REPO = "me/app"
 ME = {"id": "me", "name": "me"}
@@ -115,7 +115,8 @@ class FakeClient:
         item["labels"] = [name for name in item["labels"] if name not in remove]
         for name in add:
             if name not in self.labels:
-                raise AssertionError("label {!r} does not exist in the fake repo".format(name))
+                # What `gh issue edit --add-label` does for a label the repo does not have.
+                raise GitHubError("gh issue edit failed: could not add label: '{}' not found".format(name))
             if name not in item["labels"]:
                 item["labels"].append(name)
         self._wrote("labels", int(number), {"add": list(add), "remove": list(remove)})

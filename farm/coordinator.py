@@ -48,10 +48,10 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from farm import worktrees
-from farm.board import DONE, STAGES, FarmItem, same_label
+from farm import health, worktrees
+from farm.board import DONE, STAGES, STALLED, FarmItem, label_changes, same_label
 from farm.choose import (DEFAULT_RETRO_CAP, RETRO_ROLE, STAGE_PRIORITY, choose_launches, choose_retros,
-                         is_slot_limit, retro_candidates)
+                         is_slot_limit, retro_candidates, MAX_ATTEMPTS, stalled_items)
 from farm.cleanup import clean_up
 from farm.early_ticks import EarlyTicks, TickResult
 from farm.config import (COORDINATOR_STATE_FILE, REPO_ROOT, ConfigError, board_env_names, load_board, main_checkout,
@@ -59,6 +59,7 @@ from farm.config import (COORDINATOR_STATE_FILE, REPO_ROOT, ConfigError, board_e
 from farm.github import GitHubClient, GitHubError
 from farm.keys import KeyListener
 from farm.merge import advance_merged
+from farm.notify import notify
 from farm.retro_launch import (AGGREGATE_LABEL, AGGREGATE_ROLE, aggregate_text, choose_aggregate,
                                fill_retro_defaults, has_retro_note, retro_cleanup_ids)
 from farm.views import all_items, only_farm_items
@@ -73,6 +74,8 @@ DEFAULT_MAX_AGENTS = 3
 DEFAULT_INTERVAL_SECONDS = 900
 # A person's merged PR moves its issue to stage:staging. Set "autoAdvanceMerged": false to turn it off.
 DEFAULT_AUTO_ADVANCE_MERGED = True
+# Desktop notifications (macOS or Linux) when an issue stalls. Set "notifications": false to turn them off.
+DEFAULT_NOTIFICATIONS = True
 # How often the wait between turns checks for finished agents, to start follow-ups.
 FOLLOW_UP_POLL_SECONDS = 15
 # Keys that run a turn now while the coordinator waits between turns.
@@ -80,6 +83,9 @@ TRIGGER_KEYS = ("r", "R")
 
 # Child processes started by this coordinator process, by pid. poll() on them also reaps them.
 children = {}
+
+# The heartbeat of this coordinator run (farm/health.py). None except inside command_run, and not in a dry run.
+current_beat = None
 
 
 def log(message):
@@ -115,6 +121,7 @@ def fill_coordinator_defaults(config):
     # A role that is not listed has no limit of its own. scripts/install.sh writes default caps.
     coordinator.setdefault("maxAgentsByRole", {})
     coordinator.setdefault("autoAdvanceMerged", DEFAULT_AUTO_ADVANCE_MERGED)
+    coordinator.setdefault("notifications", DEFAULT_NOTIFICATIONS)
     check_role_caps(coordinator["maxAgentsByRole"])
     # The aggregate retro thresholds and repo (farm/retro_launch.py).
     fill_retro_defaults(coordinator, config.get("repos") or {}, CONFIG_FILE)
@@ -423,6 +430,67 @@ def retro_items_of(boards, user_id, now):
     return found
 
 
+def latest_log(item_id, role):
+    """The newest coordinator log file of this item and role, or None."""
+    try:
+        names = sorted(name for name in os.listdir(LOG_DIR) if name.endswith("-{}-{}.json".format(item_id, role)))
+    except OSError:
+        return None
+    return os.path.join(LOG_DIR, names[-1]) if names else None
+
+
+def stall_comment(item, role, log_path):
+    """The comment that tells the owner an issue stopped, and how to restart it."""
+    mention = "@{} ".format(item.owner_ids[0]) if item.owner_ids else ""
+    lines = [
+        "**🤖 Farm · stalled**",
+        "",
+        "{}The {} agent ran {} times on this issue and nothing changed each time, so I stopped retrying instead of "
+        "spending more.".format(mention, role, MAX_ATTEMPTS),
+        "",
+        "- Stage: {}".format(item.status or "none"),
+        "- Farm status before: {}".format(item.farm_status or "none"),
+        "- Latest agent log: `{}`".format(log_path) if log_path else "- No agent log was found on this machine.",
+        "",
+        "To retry, replace the label `farm:stalled` with `farm:ready`. If you can see what went wrong, add a comment "
+        "that says what to change first: the agent reads the comments.",
+    ]
+    return "\n".join(lines)
+
+
+def escalate_stalled(candidates, user_id, boards, running_items, attempts, now, config, dry_run):
+    """Stops each stalled issue visibly: sets farm:stalled, comments for the owner, and shows a desktop notification.
+
+    The label goes first. If it cannot be set (for example the repo has no farm:stalled label yet), nothing else is
+    posted, and the next turn tries again without spamming comments.
+    """
+    clients = {board[0]: board[2] for board in boards}
+    for repo_path, item, role in stalled_items(candidates, user_id, running_items, attempts, now):
+        name = "#{} {}".format(item.id, item.name[:60])
+        if dry_run:
+            log("Would mark {} stalled: the {} agent ran {} times and changed nothing.".format(name, role, MAX_ATTEMPTS))
+            continue
+        client = clients.get(repo_path)
+        if client is None:
+            continue
+        try:
+            add, remove = label_changes(item, farm_status=STALLED)
+            client.set_labels(item.id, add=add, remove=remove)
+        except GitHubError as error:
+            log("Could not mark {} stalled: {}. If the label is missing, run `farm.py setup-repo` in {}.".format(
+                name, error, repo_path))
+            continue
+        log("Stalled: {} ({} agent ran {} times and changed nothing). Set farm:ready to retry.".format(
+            name, role, MAX_ATTEMPTS))
+        try:
+            client.create_comment(item.id, stall_comment(item, role, latest_log(item.id, role)))
+        except GitHubError as error:
+            log("Marked {} stalled, but could not comment: {}".format(name, error))
+        if config["coordinator"].get("notifications", DEFAULT_NOTIFICATIONS):
+            notify("Software Farm: stalled", "{} needs you. Agents ran {} times and changed nothing.".format(
+                name, MAX_ATTEMPTS))
+
+
 def tick(config, state, dry_run):
     """Runs one full turn. Returns a TickResult for the early-turn logic."""
     prune_finished(state)
@@ -438,6 +506,7 @@ def tick(config, state, dry_run):
     retro_items = retro_items_of(boards, user_id, now)
     retro_wait_ids, retro_failed_ids = retro_cleanup_ids(retro_items, state["attempts"])
     clean_up_boards(boards, user_id, running_items, dry_run, retro_wait_ids, retro_failed_ids)
+    escalate_stalled(candidates, user_id, boards, running_items, state["attempts"], now, config, dry_run)
     free_slots, running_per_repo, running_per_role = slot_counts(config, state)
     max_per_repo = config["coordinator"]["maxAgentsPerRepo"]
     max_per_role = config["coordinator"]["maxAgentsByRole"]
@@ -514,8 +583,12 @@ def follow_up(config, state, run, dry_run):
 
 def run_one_tick(config, state, dry_run):
     """Runs a full turn and saves the state. Returns the turn's TickResult."""
+    if current_beat:
+        current_beat.turn_started()
     result = tick(config, state, dry_run)
     save_state(state)
+    if current_beat:
+        current_beat.turn_done(result.github_failed)
     return result
 
 
@@ -559,6 +632,8 @@ def wait_until(deadline, config, state, dry_run, keys, early):
         if remaining <= 0:
             return
         key = keys.wait_for_key(min(FOLLOW_UP_POLL_SECONDS, remaining))
+        if current_beat:
+            current_beat.alive()
         if key in TRIGGER_KEYS:
             log("Turn triggered by user (r).")
             early.after_tick(run_one_tick(config, state, dry_run))
@@ -587,6 +662,8 @@ def run_ticks(config, dry_run, count, interval, keys):
             log("Turn {} of {} done. {} turn(s) remaining.".format(ticks_done, count, count - ticks_done))
             if ticks_done >= count:
                 return
+        if current_beat:
+            current_beat.scheduled(interval)
         wait_until(time.monotonic() + interval, config, state, dry_run, keys, early)
 
 
@@ -612,6 +689,12 @@ def command_run(args):
         len(config["repos"]), limits_text(config["coordinator"]), interval, count_text,
         " (dry run)" if args.dry_run else ""))
     log(aggregate_text(config["coordinator"]))
+    global current_beat
+    previous_handler = None
+    if not args.dry_run:
+        current_beat = health.Beat(os.getpid(), interval, path=health.HEARTBEAT_FILE)
+        # A stop signal ends the run like Ctrl-C, so the heartbeat says "stopped on purpose".
+        previous_handler = signal.signal(signal.SIGTERM, raise_keyboard_interrupt)
     try:
         if args.delay > 0:
             log("Waiting {} seconds before the first turn.".format(args.delay))
@@ -623,9 +706,20 @@ def command_run(args):
             run_ticks(config, args.dry_run, count, interval, keys)
     except KeyboardInterrupt:
         log("Coordinator stopped. Agents it started keep running. Use `farm.py stop` to interrupt them.")
+    finally:
+        if current_beat:
+            current_beat.stopped()
+            current_beat = None
+            signal.signal(signal.SIGTERM, previous_handler)
+
+
+def raise_keyboard_interrupt(signum, frame):
+    raise KeyboardInterrupt
 
 
 def command_status(args):
+    state_name, text = health.assess(health.read(health.HEARTBEAT_FILE), health.utc_now())
+    print("Coordinator: " + text)
     if os.path.exists(CONFIG_FILE):
         # Not load_config: status also works before any repo is in the config.
         with open(CONFIG_FILE) as f:

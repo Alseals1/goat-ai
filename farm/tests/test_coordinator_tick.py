@@ -264,9 +264,21 @@ class StatusTests(unittest.TestCase):
                     mock.patch.object(coordinator, "load_state", lambda: {"runs": runs, "attempts": {}}), \
                     mock.patch.object(coordinator, "prune_finished"), \
                     mock.patch.object(coordinator, "save_state"), \
+                    mock.patch.object(coordinator.health, "read", lambda path: None), \
                     mock.patch("builtins.print") as printed:
                 coordinator.command_status(None)
-        return [call.args[0] for call in printed.call_args_list]
+        lines = [call.args[0] for call in printed.call_args_list]
+        # The first line is the coordinator's health. StatusTests.test_status_starts_with_the_health covers it.
+        assert lines[0].startswith("Coordinator: "), lines
+        return lines[1:]
+
+    def test_status_starts_with_the_health(self):
+        with mock.patch.object(coordinator, "load_state", lambda: {"runs": [], "attempts": {}}), \
+                mock.patch.object(coordinator, "prune_finished"), mock.patch.object(coordinator, "save_state"), \
+                mock.patch.object(coordinator.health, "read", lambda path: None), \
+                mock.patch("builtins.print") as printed:
+            coordinator.command_status(None)
+        self.assertTrue(printed.call_args_list[0].args[0].startswith("Coordinator: The coordinator was never started"))
 
     def test_status_shows_the_repo_and_reads_old_records(self):
         runs = [

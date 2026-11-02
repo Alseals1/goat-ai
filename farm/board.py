@@ -37,14 +37,16 @@ MERGE_REVIEW = "merge-review"
 CHAT_WITH_AGENT = "chat"
 # Set by the cleanup (farm/cleanup.py) after it removes a Done item's local worktrees and branches.
 DONE = "done"
+# Set by the coordinator (farm/coordinator.py) when agents ran on an issue twice and changed nothing. Agents never set it.
+STALLED = "stalled"
 FARM_STATUSES = (READY, WORKING, ANSWER_QUESTION, CHAT_WITH_AGENT, TIER_REVIEW, PLAN_REVIEW, MERGE_REVIEW, APPROVED,
-                 DONE)
+                 STALLED, DONE)
 
 # The statuses an agent may set when it releases an item.
 RELEASE_STATUSES = (READY, ANSWER_QUESTION, CHAT_WITH_AGENT, TIER_REVIEW, PLAN_REVIEW, MERGE_REVIEW)
 GATES = (TIER_REVIEW, PLAN_REVIEW, MERGE_REVIEW)
 # Statuses where a person must act. The coordinator @mentions the owner when an item reaches one.
-WAITS_FOR_PERSON = (ANSWER_QUESTION, CHAT_WITH_AGENT) + GATES
+WAITS_FOR_PERSON = (ANSWER_QUESTION, CHAT_WITH_AGENT, STALLED) + GATES
 
 SIZES = ("S", "M", "L", "XL")
 
@@ -358,10 +360,11 @@ def all_labels():
         TIER_REVIEW: "Waiting for a person: confirm the size, then set farm:approved",
         PLAN_REVIEW: "Waiting for a person: review the plan, then set farm:approved",
         MERGE_REVIEW: "Waiting for a person: review and merge the PR",
+        STALLED: "Stopped: agents ran twice and changed nothing. Check the log, then set farm:ready to retry",
         DONE: "The farm cleaned up this issue",
     }
     farm_colors = {READY: "fbca04", WORKING: "1d76db", APPROVED: "0e8a16", ANSWER_QUESTION: "d93f0b", CHAT_WITH_AGENT: "d93f0b",
-                   TIER_REVIEW: "e99695", PLAN_REVIEW: "e99695", MERGE_REVIEW: "e99695", DONE: "ededed"}
+                   TIER_REVIEW: "e99695", PLAN_REVIEW: "e99695", MERGE_REVIEW: "e99695", STALLED: "b60205", DONE: "ededed"}
     for name in FARM_STATUSES:
         labels.append((farm_label(name), farm_colors[name], farm_descriptions[name]))
     for size in SIZES:

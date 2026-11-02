@@ -62,6 +62,20 @@ A crashed agent leaves `farm:working` with a claim that expires (10 minutes for 
 
 When an agent hands an issue to a person, the comment ends with an @mention of the assignee. While agents use your own `gh` login, GitHub does not notify you of your own comments, so the mention is a visible marker only. To get real notifications, run the agents under a separate bot login (see "Open decisions").
 
+## Stalled issues and the health check
+
+Two things that go wrong quietly, and what the factory does about them.
+
+**A stalled issue.** When an agent runs on an issue and the issue does not change, the coordinator tries again, but at most twice (the attempt cap). Before, it then only wrote a line in its log. Now, on the turn that hits the cap, the coordinator (`escalate_stalled` in `farm/coordinator.py`):
+
+1. Replaces the issue's `farm:` label with `farm:stalled`. This goes first: if the repo has no such label, nothing else is posted, and the next turn tries again without spamming comments.
+2. Comments on the issue, @mentioning the owner: which agent ran, how often, the stage, the farm status before, and the path of the latest agent log on this machine, plus how to retry.
+3. Shows a desktop notification (`farm/notify.py`, macOS `osascript` or Linux `notify-send`, text passed as arguments so an issue title cannot run as code). `"notifications": false` turns it off.
+
+A person retries by replacing `farm:stalled` with `farm:ready`. The label change also changes the attempt key, so the count starts again. Agents can never set `stalled` (it is not a release status).
+
+**A dead coordinator.** The coordinator writes a heartbeat file (`farm/health.py`) at start, every ~15 seconds while it waits, around each turn, and when it stops on purpose. `farm.py health` combines the file with a check that the process is alive and returns running, stale, died, stopped or never (see the README). The file is written atomically, write errors never stop the coordinator, dry runs write nothing, and a stop signal (Ctrl-C or SIGTERM) is recorded as a stop on purpose, so only a real death looks like one. The factory does not restart the coordinator by itself: starting agents is a decision for the person who owns the laptop, and a crash loop would spend money. `health --notify` is made for a scheduled job.
+
 ## Merge detection
 
 A merged PR is a native GitHub event, so the coordinator checks for it each turn (`farm/merge.py`). For each of your issues at `farm:merge-review`, it finds merged PRs on `farm/<number>-*` branches. It moves the issue only when the issue's PR link (the bottom PR of a stack) is among them, and no `farm/<number>-*` branch still has an open PR. It posts a comment and sets `stage:staging` with no `farm:` label. PR bodies say `Refs #<number>`, never `Closes`, so a merge does not close the issue: closing is a person's step and starts the retro. `"autoAdvanceMerged": false` in the config turns this off.
@@ -94,7 +108,8 @@ Not changed on purpose: the gate rules are still applied by agents (not enforced
 - The claim is not atomic (see Claims).
 - `board_items` reads at most 500 issues that carry a `farm:` or `stage:` label, newest first. A repo with more needs paging.
 - Run records, attempt counts, retro notes and claim records are local to one machine, as in the original. A second machine cannot `chat`, retro or count attempts.
-- The coordinator trusts process ids with no start-time check (a reused pid looks alive).
+- The coordinator trusts process ids with no start-time check (a reused pid looks alive). `farm.py health` has the same weakness: it reports "running" only while the heartbeat is also fresh, which makes a false positive unlikely but not impossible.
+- The heartbeat shows the coordinator is alive, not that it is doing useful work: a coordinator that is stuck inside one turn goes stale after 5 minutes, but one that loops without progress does not.
 - A person's label edit between two agent writes is caught by the next write's check, not before.
 - Comments are limited to 65,536 characters by GitHub. A spec longer than that must be split into two doc sections.
 

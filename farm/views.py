@@ -32,6 +32,8 @@ def waiting_hint(farm_status):
         return "please review the plan, then set the label farm:approved, or comment and set farm:ready to send it back."
     if fb.same_label(farm_status, fb.MERGE_REVIEW):
         return "please review and merge the PR, or comment and swap the labels to stage:implement and farm:ready."
+    if fb.same_label(farm_status, fb.STALLED):
+        return "agents stopped after repeated runs that changed nothing: check the agent log, then set the label farm:ready to retry."
     return ""
 
 
@@ -47,6 +49,8 @@ def next_step(item, now):
         return "waits for a person: answer the question in a comment, then set farm:ready"
     if fb.same_label(item.farm_status, fb.CHAT_WITH_AGENT):
         return "waits for a person: run farm.py chat {}".format(item.id)
+    if fb.same_label(item.farm_status, fb.STALLED):
+        return "waits for a person: stalled, check the agent log, then set farm:ready to retry"
     if item.farm_status in fb.GATES:
         return "waits for a person: {}".format(fb.display(item.farm_status))
     if fb.same_label(item.farm_status, fb.DONE):

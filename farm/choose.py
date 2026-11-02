@@ -66,6 +66,22 @@ def skip_reason(item, role, running_items, attempts):
     return None
 
 
+def stalled_items(candidates, user_id, running_items, attempts, now):
+    """The user's issues that the coordinator gave up on: an agent is due, none is running, and agents already ran
+    MAX_ATTEMPTS times without changing the issue. Returns [(repo path, FarmItem, role)].
+
+    The coordinator tells the owner and sets farm:stalled, so the issue stops here instead of waiting unseen.
+    """
+    found = []
+    for repo_path, item in candidates:
+        if not item.is_owned_by(user_id) or item.id in running_items:
+            continue
+        role = next_role(item, now)
+        if role is not None and attempts.get(attempt_key(item), 0) >= MAX_ATTEMPTS:
+            found.append((repo_path, item, role))
+    return found
+
+
 def choose_launches(candidates, user_id, running_items, attempts, free_slots, now,
                     running_per_repo=None, max_per_repo=None, running_per_role=None, max_per_role=None):
     """Returns (launches, skipped).

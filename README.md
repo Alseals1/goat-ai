@@ -74,6 +74,7 @@ A project is a GitHub repo whose issues the factory works on, with a local check
 3. Answer questions and approve gates on GitHub, by changing labels and commenting:
    - **`farm:answer-question`:** answer in a comment, then replace the label with `farm:ready`.
    - **`farm:chat`:** run `python3 ~/.software-farm/farm.py chat <number>` in a terminal. It resumes the agent's session in its start folder, so you can talk it through.
+   - **`farm:stalled`:** agents ran twice on the issue and changed nothing, so the coordinator stopped retrying, commented on the issue (it names the agent log) and showed a desktop notification. Read the log or the issue, add a comment that says what to change if you can, then replace the label with `farm:ready` to retry.
    - **`farm:tier-review`, `farm:plan-review`:** replace the label with `farm:approved`, or comment with the changes you want and set `farm:ready`.
    - **`farm:merge-review`:** merge the PR on GitHub. The coordinator then moves the issue to `stage:staging`. To ask for changes instead, comment, then replace `stage:review` with `stage:implement` and `farm:merge-review` with `farm:ready`.
 4. When the issue is finished, **close it**. The coordinator starts a [retro](#retros) for it. After the retro, the coordinator (or `python3 ~/.software-farm/farm.py cleanup` in the project repo, which does not wait for the retro) removes its local worktrees and `farm/` branches and sets the label `farm:done`. It keeps anything with unsaved work and says why. Add `--dry-run` to see what it would do.
@@ -87,7 +88,7 @@ A project is a GitHub repo whose issues the factory works on, with a local check
 | Label | Meaning |
 | --- | --- |
 | `stage:discovery`, `stage:intake`, `stage:plan`, `stage:implement`, `stage:review`, `stage:staging` | The stage. A closed issue is done |
-| `farm:ready`, `farm:working`, `farm:approved`, `farm:answer-question`, `farm:chat`, `farm:tier-review`, `farm:plan-review`, `farm:merge-review`, `farm:done` | What the farm is doing or waiting for |
+| `farm:ready`, `farm:working`, `farm:approved`, `farm:answer-question`, `farm:chat`, `farm:tier-review`, `farm:plan-review`, `farm:merge-review`, `farm:stalled`, `farm:done` | What the farm is doing or waiting for |
 | `size:S`, `size:M`, `size:L`, `size:XL` | The size: sets the gates and the model |
 | `prio:blocker`, `first`, `next`, `later`, `last`, `best-effort` | Priority, in this order |
 
@@ -151,6 +152,7 @@ The coordinator starts the agents for you: every 15 minutes it reads each projec
        "intervalSeconds": 300,
        "maxAgentsPerRepo": 1,
        "autoAdvanceMerged": true,
+       "notifications": true,
        "maxAgentsByRole": { "intake": 2, "plan": 2, "implement": 2, "review": 2, "retro": 1 }
      }
    }
@@ -160,6 +162,7 @@ The coordinator starts the agents for you: every 15 minutes it reads each projec
    - Do not set `FARM_GITHUB_*` variables in the shell that runs the coordinator. They would win over every project's `.env`, so the coordinator stops with a message.
    - `maxAgents` limits agents across all repos. `maxAgentsPerRepo` is optional (no limit when it is not set). Set it to 1 when a repo's agents would share local services, such as a database or a dev server port.
    - `maxAgentsByRole` is optional: the most agents at once in one role, so long Implement runs cannot take every slot. The caps are ceilings in the shared `maxAgents` pool, not reserved slots. `retro` defaults to 1 and only gets the slots that stage agents leave free.
+   - `notifications` (default `true`): a desktop notification (macOS or Linux) when an issue stalls. Set it to `false` to turn them off. The comment on the issue is posted either way.
    - `autoAdvanceMerged` (default `true`): when a person merges a PR, the coordinator moves its issue from `farm:merge-review` to `stage:staging`. Set it to `false` to do that by hand.
    - When issues wait for a slot and an agent ends, the coordinator runs a full early turn, so the waiting issues start in priority order. Early turns run at most once a minute. After a GitHub error, an early turn tries again after 120, 240, then 480 seconds.
 2. Each agent runs in its issue's own worktree, `<repo folder>-farm/<number>` next to the checkout. The coordinator fetches, makes or refreshes the worktree at the latest default branch, and copies the project's env files into it, so tests can run there. Your main checkout can be on any branch, with local changes.
@@ -179,11 +182,31 @@ The coordinator starts the agents for you: every 15 minutes it reads each projec
 
    `--loop-count N` stops after N turns, `--loop-interval S` sets the seconds between turns, `--once` is one turn, `--delay S` waits before the first turn. While it waits, press `r` to run a turn now.
 5. Between turns it checks its agents every 15 seconds. When one ends, it reads only that issue and starts its next agent at once, within the same limits. The log shows `Finished: ...` and then `Started: ...` or `Not starting ...: <reason>`.
-6. `python3 ~/.software-farm/farm.py status` lists the agents it started. `python3 ~/.software-farm/farm.py stop` interrupts them. Logs are in `~/.software-farm/coordinator/logs/`.
+6. `python3 ~/.software-farm/farm.py status` shows whether the coordinator is running and lists the agents it started. `python3 ~/.software-farm/farm.py stop` interrupts them. Logs are in `~/.software-farm/coordinator/logs/`.
+
+### Is the coordinator running?
+
+```sh
+python3 ~/.software-farm/farm.py health
+```
+
+While it runs, the coordinator writes a heartbeat file every few seconds (`~/.software-farm/coordinator/heartbeat.json`). `health` reads it and says one of:
+
+| State | Meaning |
+| --- | --- |
+| running | The process is alive and reported in the last 5 minutes. The line also says when the last check ran and when the next one is due. |
+| stale | The process exists but has not reported for over 5 minutes. Usually the laptop was asleep. It carries on when it wakes. |
+| died | It did not stop on purpose and the process is gone (terminal closed, a crash, a restart). Tasks are paused: start it again. |
+| stopped | You stopped it on purpose (Ctrl-C, `kill`, or a finished `--once` run). |
+| never | It was never started on this machine. |
+
+The exit code is 0 only for running, so scripts can use it. `health --json` prints the same as JSON. `health --notify` also shows a desktop notification for stale or died (not for stopped), so you can watch the coordinator from a scheduled job, for example a cron line every 10 minutes: `*/10 * * * * python3 $HOME/.software-farm/farm.py health --notify`. The farm does not install that schedule for you.
+
+If the coordinator cannot read GitHub several turns in a row, `health` says so.
 
 ## farm.py for scripts and agents
 
-`list`, `show` and `setup-repo` take `--json`. They then print one JSON document on stdout and nothing else. Each document has `"version": "0.1"`, so a reader can see when a shape changes.
+`list`, `show`, `setup-repo` and `health` take `--json`. They then print one JSON document on stdout and nothing else. Each document has `"version": "0.1"`, so a reader can see when a shape changes.
 
 `claim` and `release` print JSON already, without a version field.
 
@@ -207,7 +230,7 @@ The factory version is in `VERSION` (SemVer). Each release has a git tag, `vX.Y.
 
 - `python3 ~/.software-farm/farm.py version` prints the version and the commit.
 - Every agent comment shows the version in its header, and every run record has `farmVersion`.
-- `claim` checks that the repo has every farm label before it writes. If not, it stops and names them: run `farm.py setup-repo`.
+- `claim` checks that the repo has every farm label before it writes. If not, it stops and names them: run `farm.py setup-repo`. Run it again after an update that adds a label (`farm:stalled` is one of those).
 - `python3 ~/.software-farm/farm.py update` fetches the tags and moves your clone to the newest release tag. If the release adds a skill, run `scripts/install.sh` again, and restart the coordinator.
 
 `update` refuses, and says why, when the clone is on a branch, HEAD is not at a release tag, the clone has local changes, or the coordinator has agents running.

@@ -21,11 +21,12 @@ import os
 import sys
 
 from farm import board as fb
-from farm import chat, coordinator, exit_codes, retro_facts, retros, setup, views, views_json
+from farm import chat, coordinator, exit_codes, health, retro_facts, retros, setup, views, views_json
 from farm.actions import POST_KINDS, Farm, FarmError, refuse_ready_when_headless, utc_now
 from farm.cleanup import clean_up
 from farm.config import REPO_ROOT, ConfigError, load_board, load_shared, main_checkout, project_env
 from farm.github import GitHubClient, GitHubError
+from farm.notify import notify
 from farm.update import UpdateError, update
 from farm.version import version_label, version_lines
 from farm.worktrees import WorktreeError, copy_env_files, env_file_paths, fetch, item_ref, prepare
@@ -155,6 +156,24 @@ def command_summary(args):
 
 def command_chat(args):
     chat.chat(make_farm(args).resolve_item_id(args.item), session=args.session)
+
+
+def command_health(args):
+    """Is the coordinator running? Reads its heartbeat file. Exit code 0 when it is running, 1 when it is not.
+
+    With --notify, a desktop notification is shown when it is stale or died without being stopped on purpose, so a
+    scheduled `farm.py health --notify` can watch the coordinator.
+    """
+    data = health.read(health.HEARTBEAT_FILE)
+    state, text = health.assess(data, health.utc_now())
+    if args.json:
+        print_json({"version": views_json.VERSION, "state": state, "running": state == health.RUNNING,
+                    "message": text, "heartbeat": data})
+    else:
+        print(text)
+    if args.notify and state in health.ALERT_STATES:
+        notify("Software Farm: coordinator not running", text)
+    return 0 if state == health.RUNNING else 1
 
 
 def command_version(args):
@@ -342,8 +361,13 @@ def build_parser():
     run.add_argument("--delay", type=non_negative_int, default=0,
                      help="seconds to wait before the first turn (default: 0)")
     run.add_argument("--dry-run", action="store_true", help="show what would start; start nothing")
-    add("status", coordinator.command_status, "list the agents the coordinator started", FARM + " status",
+    add("status", coordinator.command_status, "is the coordinator running, and the agents it started", FARM + " status",
         item=False)
+    health_command = add("health", command_health, "is the coordinator running? (exit code 0: yes, 1: no)",
+                         FARM + " health --notify", item=False)
+    health_command.add_argument("--json", action="store_true", help=json_help)
+    health_command.add_argument("--notify", action="store_true",
+                                help="show a desktop notification when it stopped without being told to")
     add("stop", coordinator.command_stop, "interrupt the agents the coordinator started", FARM + " stop",
         item=False)
 

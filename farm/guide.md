@@ -17,7 +17,7 @@ An issue is named by its number: `14`, `#14`, or the issue's link.
 | Part of the issue | Meaning |
 | --- | --- |
 | Label `stage:<name>` | The stage: `stage:intake`, `stage:plan`, `stage:implement`, `stage:review`. Also `stage:discovery` (backlog) and `stage:staging` (merged). A closed issue is done. |
-| Label `farm:<name>` | What waits: ready, working, answer-question, chat, tier-review, plan-review, merge-review, approved. `farm:done`: the retro ran (or was skipped) and local worktrees and branches are cleaned up (agents never set it). No `farm:` label means not a farm issue. |
+| Label `farm:<name>` | What waits: ready, working, answer-question, chat, tier-review, plan-review, merge-review, approved, stalled. `farm:done`: the retro ran (or was skipped) and local worktrees and branches are cleaned up (agents never set it). No `farm:` label means not a farm issue. |
 | Label `size:S` to `size:XL` | The tier |
 | Label `prio:<name>` | Priority: blocker, first, next, later, last, best-effort |
 | Assignee | The owner. Only the assignee's agents work on the issue. |
@@ -49,6 +49,7 @@ After review, a person merges the PR. The coordinator then moves the issue to `s
 | plan-review | Plan wrote the spec and plan | Person |
 | merge-review | The PR is reviewed and waits for a merge | Person |
 | approved | A person passed the gate | Agent (the next stage) |
+| stalled | Agents ran twice on it and changed nothing, so the coordinator stopped and told the owner | Person (check the log, then set `farm:ready`) |
 | done | The retro ran or was skipped, and local worktrees and branches are cleaned up | Nobody |
 
 ## Commands
@@ -64,7 +65,8 @@ Every command has `--help` with an example.
 | `rules` | The shared gates and leases |
 | `guide` | This guide |
 | `version` | The farm version and commit |
-| `status` | The agents that the coordinator started |
+| `status` | Whether the coordinator is running, and the agents it started |
+| `health [--json] [--notify]` | Is the coordinator running, stale (asleep), died, or stopped on purpose |
 
 **Setup and local work (only when the developer asks):**
 

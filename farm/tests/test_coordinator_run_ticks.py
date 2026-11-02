@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -235,6 +236,15 @@ class FakeListener:
 
 
 class CommandRunTest(unittest.TestCase):
+    def setUp(self):
+        # command_run writes a heartbeat. Never into the developer's real ~/.software-farm.
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.heartbeat_file = os.path.join(directory.name, "heartbeat.json")
+        patcher = mock.patch.object(coordinator.health, "HEARTBEAT_FILE", self.heartbeat_file)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def run_command(self, active=False, environ=None, sleep_error=None, config=CONFIG, **options):
         """Run command_run with mocks. `self.calls` records the sleep and run_ticks calls in order."""
         defaults = {"once": False, "dry_run": False, "loop_count": None, "loop_interval": None, "delay": 0}
