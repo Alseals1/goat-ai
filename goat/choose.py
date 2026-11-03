@@ -135,6 +135,7 @@ def choose_launches(candidates, user_id, running_items, attempts, free_slots, no
             "role": role,
             "model": model_for(role, item.size),
             "repoPath": repo_path,
+            "url": item.url,
             "attemptKey": attempt_key(item),
         })
     return launches, skipped
@@ -202,6 +203,7 @@ def choose_retros(candidates, has_note, running_items, attempts, free_slots,
             "role": RETRO_ROLE,
             "model": model_for(RETRO_ROLE, item.size),
             "repoPath": repo_path,
+            "url": item.url,
             "attemptKey": retro_attempt_key(item),
         })
     return launches, skipped, waiting

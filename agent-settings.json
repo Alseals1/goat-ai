@@ -129,7 +129,9 @@
       "Bash(http *discord.com*)",
       "WebFetch(domain:discord.com)",
       "Bash(python3 */goat.py discord-test*)",
-      "Bash(python3 goat.py discord-test*)"
+      "Bash(python3 goat.py discord-test*)",
+      "Bash(python3 */goat.py discord-check*)",
+      "Bash(python3 goat.py discord-check*)"
     ]
   }
 }

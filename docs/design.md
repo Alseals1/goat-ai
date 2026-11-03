@@ -83,14 +83,32 @@ Each role has a first name and a one-line voice (`agents` in `goat-config.json`;
 
 ## Discord messages
 
-The coordinator can post into a Discord channel through a webhook (`goat/discord.py`, `goat/messenger.py`). Outbound only in this version. Each message is signed by the teammate who owns the moment, using the webhook's per-message name.
+The coordinator can post into a Discord channel through a webhook (`goat/discord.py`, `goat/messenger.py`). Each message is signed by the teammate who owns the moment, using the webhook's per-message name.
 
 - **When.** `tell_waiting` runs each turn. It announces an issue the first time it is seen at a gate, a question or a chat, and remembers what it announced in the coordinator's state file (`notified`). The memory is cleared when the issue leaves the waiting state, so a second round is announced again. A failed send is logged and retried on the next turn; it never stops the coordinator. Dex also announces merges and stalled issues.
+- **Activity.** `tell_stage_moves` also runs each turn and remembers each issue's stage in the state file (`stages`). An issue seen for the first time, or one that moved into staging or done, is recorded without a message. `start_launches` and `prune_finished` take an optional `announce` callable (`activity_announcers` in `goat/coordinator.py`) for "agent started" and "agent finished". After a stage run ends, the issue is read once so the message can name who it is on (`messenger.on_whom`: the owner at a gate, a question, a chat or a stall; the agent with a live claim; else the agent due next). The aggregate retro has no issue, so it is not announced. A failed send is logged and, for moves, retried on the next turn. `"discordActivity": false` turns the three message kinds off. A run that ends while `goat.py status`, `stop` or `update` prunes the state first is not announced.
 - **Secrets.** The webhook URL lives in `~/.goat-ai/discord.env`, outside the repo. It never appears in logs, errors or messages, and the agents' deny rules block reading that file and calling Discord (`agent-settings.json`).
 - **Hardening.** `allowed_mentions` is empty on every message, so issue text cannot ping anyone. Text is stripped of control characters and cut to Discord's limits. Rate limits are waited out (capped) and retried, as are server errors.
 - **Certificates.** Verification is never turned off. When Python has no root certificates of its own (the python.org build on macOS), the system bundle is used.
 - **Tests.** The test package points the env file at an empty temporary folder, so no test can read the real settings or send a real message.
-- **Not built.** Replies. Approving from Discord needs a bot that listens, an allow-list of the owner's user id, and an audit note on the issue. See `docs/ideas.md`.
+
+## Approving from Discord
+
+The owner types `start 9`, `approve 9`, `send back 9: note` or `answer 9: text` in a private channel. `goat/inbox.py` reads it (REST polling with the bot token, every 15 seconds while the coordinator waits between turns: no gateway connection and no libraries) and the coordinator makes the label change.
+
+- **Not an agent.** The coordinator acts as the owner, with the owner's `gh` login, through `label_changes` and `set_labels`, the same path as a hand edit, so a label slip (removing the wrong label) cannot happen. Agents never read Discord and cannot change gate labels.
+- **Checks, in order.** The message is from `DISCORD_OWNER_USER_ID` and not a bot or webhook, in the approvals channel, a plain message or reply, not empty, and under 30 minutes old. The issue is read fresh, is an open goat issue assigned to the owner, has no live claim, and waits at the gate the command is for. Approve: size or plan checkpoint. Send back: size, plan or merge checkpoint. Answer: a question. Everything else changes nothing and gets a reason.
+- **Never a merge.** `approve` on a merge checkpoint is refused. Send back from merge review sets `stage:implement` and `goat:ready`, the documented path.
+- **At most once.** The cursor (`state["inbox"]["after"]`) moves and is saved before the command runs.
+- **Listening late.** The inbox remembers when it started. The first look reads the previous 30 minutes, so a message typed just before it started listening gets a reply ("I had not started listening") instead of silence, and a message typed just after is acted on. A message sent before the start is never run, including after a restart.
+- **Start.** `start N` is for an open issue with no goat label, in the backlog (or with no stage), assigned to nobody or to the owner. The owner is assigned first, then `stage:intake` and `goat:ready` are set, then a note is left. Issues already in the factory, past the backlog, closed, or owned by someone else are refused.
+- **Order of writes.** A note (send back, answer) is posted before the labels change, so an agent never restarts without it. For an approval the labels change first, then the audit note; a failed note is reported but the approval stands.
+- **Audit.** Every action leaves a comment starting with `<!-- goat:discord -->`. The owner's words have no robot header, so agents read them as a person's comment.
+- **Turn at once.** A successful command triggers a turn, like the `r` key, so the next agent starts without waiting for the interval.
+- **Replies.** Dex answers in the channel as the bot, as a reply to the message. If the bot cannot write there, the webhook posts into the dispatch channel instead.
+- **Quiet failures.** A problem (bad token, channel not found, bot not allowed in) is logged once until it changes. The channel is looked up again every 5 minutes, so creating it while the coordinator runs works. An empty message from the owner means Message Content Intent is off, and Dex says so once.
+- **Secrets.** The token is only in the `Authorization` header and is removed from every error. `discord-check` reads only. Agents are denied the file, Discord, and both commands.
+- **Residual risk.** A taken-over Discord account could approve a size or plan, never a merge. Two-step verification is the defence. A PIN word is an option if needed.
 
 ## Merge detection
 
