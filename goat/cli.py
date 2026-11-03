@@ -214,6 +214,46 @@ def command_discord_test(args):
     print("Sent a test message to your Discord channel as {}.".format(username))
 
 
+def command_discord_check(args):
+    """Checks the Discord reply setup. Reads only: it sends nothing and changes nothing."""
+    values = discord_client.settings()
+    problems = []
+
+    def line(ok, text):
+        print("  {} {}".format("ok  " if ok else "FIX ", text))
+        if not ok:
+            problems.append(text)
+
+    print("Discord replies check (nothing is sent):")
+    line(bool(values.get(discord_client.WEBHOOK_KEY)), "the webhook for Dex's posts is set ({})".format(discord_client.WEBHOOK_KEY))
+    owner_ok = bool(discord_client.SNOWFLAKE.match(values.get(discord_client.OWNER_KEY, "").strip()))
+    line(owner_ok, "your Discord user id is set ({})".format(discord_client.OWNER_KEY))
+    try:
+        bot = discord_client.bot_from_settings(values)
+    except DiscordError as error:
+        bot = None
+        line(False, str(error))
+    else:
+        line(bot is not None, "the bot token is set ({})".format(discord_client.BOT_TOKEN_KEY))
+    if bot is not None:
+        try:
+            line(True, "the bot token works (bot name: {})".format(bot.me().get("username", "?")))
+            flags_on = bool(bot.application_flags() & discord_client.MESSAGE_CONTENT_FLAGS)
+            line(flags_on, "Message Content Intent is on" if flags_on else
+                 "switch on Message Content Intent: Developer Portal, your application, Bot tab, then Save")
+            channel_id = coordinator.approvals_channel(bot, values)
+            line(bool(channel_id), "found the private #approvals channel" if channel_id else
+                 "no channel named approvals found: create a private text channel #approvals, and add the bot to it")
+            if channel_id:
+                bot.newest_message_id(channel_id)
+                line(True, "the bot can read #approvals")
+        except DiscordError as error:
+            line(False, str(error))
+    if problems:
+        raise ConfigError("Not ready yet: {} thing(s) to fix. See the README, section Discord.".format(len(problems)))
+    print("All set. Start the coordinator and type `help` in #approvals.")
+
+
 def command_version(args):
     for line in version_lines():
         print(line)
@@ -441,6 +481,9 @@ def build_parser():
     discord_test.add_argument("--as", dest="role", default=team.DISPATCHER,
                               choices=("intake", "plan", "implement", "review", "retro", "dispatcher"),
                               help="which teammate signs it (default: dispatcher)")
+    add("discord-check", command_discord_check,
+        "check the Discord reply setup (token, #approvals, Message Content Intent). Sends nothing",
+        GOAT + " discord-check", item=False)
     add("version", command_version, "print G.O.A.T. version and commit", GOAT + " version", item=False)
     add("update", command_update, "move this G.O.A.T. install to the newest release tag", GOAT + " update", item=False)
     add("rules", command_rules, "print the shared gates and leases (goat-config.json)", GOAT + " rules", item=False)

@@ -130,6 +130,13 @@ class WriteTests(unittest.TestCase):
         self.assertEqual(runner.calls[0][0], ["issue", "edit", "5", "--repo", "me/app", "--add-label", "goat:working",
                                               "--remove-label", "goat:ready,stage:plan"])
 
+    def test_add_assignees_is_one_call(self):
+        runner = Runner((["issue", "edit"], ""))
+        client(runner).add_assignees(5, ["me"])
+        self.assertEqual(runner.calls[0][0], ["issue", "edit", "5", "--repo", "me/app", "--add-assignee", "me"])
+        client(runner).add_assignees(5, [])
+        self.assertEqual(len(runner.calls), 1)
+
     def test_set_labels_with_nothing_to_do_makes_no_call(self):
         runner = Runner()
         client(runner).set_labels(5)

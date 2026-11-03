@@ -76,6 +76,7 @@ Every command has `--help` with an example.
 | `add "<title>" [--file -] [--milestone M] [--priority P]` | Creates an issue in `stage:discovery`. Never pass `--ready`: a person decides when work starts |
 | `setup-repo [--check] [--milestone M] [--json]` | Creates the G.O.A.T. labels (and a milestone) in the repo. Safe to repeat |
 | `discord-test [--as ROLE]` | Sends one test message to your Discord channel, signed by a teammate. People only: it needs the webhook in `~/.goat-ai/discord.env` |
+| `discord-check` | Checks the Discord reply setup (bot token, the #approvals channel, Message Content Intent). Sends nothing. People only |
 | `worktree <item>` | Makes or refreshes the issue's worktree and prints its path |
 | `cleanup [--dry-run]` | Removes local worktrees and branches of your closed issues |
 
@@ -122,6 +123,8 @@ Agents never approve a gate, answer a question or merge a PR. When one of those 
 - **Answer a question or ask for changes:** comment on the issue, then swap the label for `goat:ready`.
 - **Merge:** merge the PR on GitHub. The coordinator then moves the issue to `stage:staging`. To send the work back instead, comment and set `stage:implement` and `goat:ready`.
 - **Finish:** close the issue, which starts the retro and the cleanup.
+
+The owner can also type `start 9`, `approve 9`, `send back 9: <note>` or `answer 9: <answer>` in a private Discord channel. The coordinator, not an agent, reads it and makes the same label change as the owner, with the owner's own login (never a merge). An agent never reads Discord, never changes a gate label, and treats a comment that starts "Sent from Discord" like any comment a person wrote.
 
 ## Next
 

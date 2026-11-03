@@ -49,7 +49,7 @@ import time
 from datetime import datetime, timezone
 
 from goat import discord as discord_client
-from goat import health, messenger, team, worktrees
+from goat import health, inbox, messenger, team, worktrees
 from goat.board import DONE, STAGES, STALLED, GoatItem, label_changes, same_label
 from goat.choose import (DEFAULT_RETRO_CAP, RETRO_ROLE, STAGE_PRIORITY, choose_launches, choose_retros,
                          is_slot_limit, retro_candidates, MAX_ATTEMPTS, stalled_items)
@@ -57,7 +57,7 @@ from goat.cleanup import clean_up
 from goat.early_ticks import EarlyTicks, TickResult
 from goat.config import (COORDINATOR_STATE_FILE, REPO_ROOT, ConfigError, board_env_names, load_board, load_shared,
                          main_checkout, project_env)
-from goat.github import GitHubClient, GitHubError
+from goat.github import GitHubClient, GitHubError, ItemNotFound
 from goat.keys import KeyListener
 from goat.merge import advance_merged
 from goat.notify import notify
@@ -87,6 +87,10 @@ children = {}
 
 # The heartbeat of this coordinator run (goat/health.py). None except inside command_run, and not in a dry run.
 current_beat = None
+
+# Reads the owner's commands from Discord while the coordinator waits (goat/inbox.py). None unless set up in
+# command_run: not in a dry run, and not when Discord replies are off or not configured.
+current_inbox = None
 
 
 def log(message):
@@ -186,8 +190,10 @@ def is_alive(pid):
     return True
 
 
-def prune_finished(state):
-    """Removes finished runs from the state, logs each one, and returns them."""
+def prune_finished(state, announce=None):
+    """Removes finished runs from the state, logs each one, and returns them.
+
+    announce(run, exit code), when given, tells Discord about each one (see activity_announcers)."""
     still_running = []
     finished = []
     for run in state["runs"]:
@@ -197,6 +203,8 @@ def prune_finished(state):
         exit_code = children.pop(run["pid"]).returncode if run["pid"] in children else "unknown"
         log("Finished: {} {} (exit {}). Log: {}".format(run["role"], run.get("label", run["item"]), exit_code, run["log"]))
         finished.append(run)
+        if announce is not None:
+            announce(run, exit_code)
     state["runs"] = still_running
     return finished
 
@@ -260,7 +268,7 @@ def discord_webhook(config):
     """The Discord webhook from ~/.goat-ai/discord.env, or None when it is not set up or turned off.
 
     "discord": false in the coordinator config turns the messages off. A bad URL is logged and ignored."""
-    if config["coordinator"].get("discord", True) is False:
+    if config.get("coordinator", {}).get("discord", True) is False:
         return None
     try:
         return discord_client.from_settings(discord_client.settings())
@@ -291,8 +299,127 @@ def tell_discord(webhook, config, state, candidates, user_id, boards, now, dry_r
         except (GitHubError, KeyError):
             return ""
 
-    messenger.tell_waiting(webhook, candidates, user_id, state, fetch_summary, load_shared(),
-                           team.owner(config)["name"], now, dry_run, log)
+    shared = load_shared()
+    owner_name = team.owner(config)["name"]
+    messenger.tell_waiting(webhook, candidates, user_id, state, fetch_summary, shared, owner_name, now, dry_run, log)
+    if activity_on(config):
+        messenger.tell_stage_moves(webhook, candidates, user_id, state, shared, owner_name, now, dry_run, log)
+
+
+def activity_on(config):
+    """True unless "discordActivity": false in the coordinator config turns off the started, finished and moved messages."""
+    return config.get("coordinator", {}).get("discordActivity", True) is not False
+
+
+def activity_announcers(config, webhook):
+    """(on_start, on_finish) for start_launches and prune_finished: they tell Discord that an agent started or ended.
+
+    Both are None when there is no webhook or the activity messages are off. The aggregate retro has no issue, so it
+    is not announced. After a stage run ends, the issue is read once so the message can say who it is on."""
+    if webhook is None or not activity_on(config):
+        return None, None
+    shared = load_shared()
+    owner_name = team.owner(config)["name"]
+
+    def on_start(run):
+        if run["role"] == AGGREGATE_ROLE:
+            return
+        say(webhook, messenger.started_message(run["role"], run["label"], run.get("url", ""), run.get("model", ""), shared),
+            "the started message")
+
+    def on_finish(run, exit_code):
+        if run["role"] == AGGREGATE_ROLE:
+            return
+        on = None
+        if run["role"] in STAGES and run.get("repoPath"):
+            try:
+                item, _, _ = read_item(run["repoPath"], run["item"])
+                on = messenger.on_whom(item, shared, owner_name, datetime.now(timezone.utc))
+            except (ConfigError, GitHubError):
+                pass
+        say(webhook, messenger.finished_message(run["role"], run.get("label", run["item"]), run.get("url", ""), exit_code, on,
+                                                shared), "the finished message")
+
+    return on_start, on_finish
+
+
+def locate_item(config, number):
+    """Finds issue `number` in each configured repo, read just now. Returns (found, problems).
+
+    found is [(client, GoatItem, user id)] for each repo that has it. problems are texts for repos that could not be read."""
+    found, problems = [], []
+    for repo, path in check_repos(config).items():
+        try:
+            board = load_board(project_env(path), path)
+            client = GitHubClient(board["repo"])
+            user_id = client.me()["id"]
+            found.append((client, GoatItem.from_github(client.get_item(number)), user_id))
+        except ItemNotFound:
+            continue
+        except (ConfigError, GitHubError) as error:
+            problems.append("{}: {}".format(repo, error))
+    return found, problems
+
+
+def waiting_items(config):
+    """The owner's issues that wait for them (a gate, a question, a chat, a stall). Returns (items, problems)."""
+    candidates, user_id, _, _ = read_boards(check_repos(config))
+    if candidates is None:
+        return [], ["no repo could be read"]
+    return [item for _, item in candidates if item.is_owned_by(user_id)
+            and (item.goat_status in messenger.WAITING or same_label(item.goat_status, STALLED))], []
+
+
+def approvals_channel(bot, values):
+    """The id of the approvals channel: DISCORD_CHANNEL_APPROVALS, else the server's channel named "approvals"."""
+    explicit = values.get(discord_client.APPROVALS_KEY, "").strip()
+    if explicit:
+        return explicit
+    for channel in bot.channels(values.get(discord_client.GUILD_KEY, "").strip()):
+        if (channel.get("name") or "").lower() == discord_client.APPROVALS_CHANNEL_NAME:
+            return str(channel["id"])
+    return None
+
+
+def build_inbox(config):
+    """The Inbox that reads the owner's commands from Discord, or None when that is off or not set up.
+
+    Needs the bot token and the owner's Discord id in ~/.goat-ai/discord.env. "discordReplies": false in the
+    coordinator config turns it off."""
+    if config["coordinator"].get("discord", True) is False or config["coordinator"].get("discordReplies", True) is False:
+        return None
+    values = discord_client.settings()
+    if not values.get(discord_client.WEBHOOK_KEY):
+        return None
+    try:
+        bot = discord_client.bot_from_settings(values)
+    except discord_client.DiscordError as error:
+        log("Discord inbox: {}".format(error))
+        return None
+    owner_id = values.get(discord_client.OWNER_KEY, "").strip()
+    if bot is None or not discord_client.SNOWFLAKE.match(owner_id):
+        log("Discord inbox: off. It needs {} and {} in {}.".format(
+            discord_client.BOT_TOKEN_KEY, discord_client.OWNER_KEY, discord_client.ENV_FILE))
+        return None
+    shared = load_shared()
+    webhook = discord_webhook(config)
+    owner = team.owner(config)
+    channel = {"id": None}
+
+    def reply(text, message_id):
+        try:
+            bot.send(channel["id"], text, reply_to=message_id)
+        except discord_client.DiscordError as error:
+            # The bot may not be allowed to write in the channel. The webhook can still reach the dispatch channel.
+            log("Discord inbox: the bot could not reply in the approvals channel ({}). Using the webhook.".format(error))
+            say(webhook, (team.dispatcher_signature(shared), text, None), "an approvals reply")
+
+    def resolve():
+        channel["id"] = approvals_channel(bot, values)
+        return channel["id"]
+
+    return inbox.Inbox(bot, owner_id, resolve, lambda number: locate_item(config, number),
+                       lambda: waiting_items(config), reply, save_state, shared, owner, log)
 
 
 def advance_merged_boards(boards, user_id, dry_run, webhook=None, owner_name=""):
@@ -403,6 +530,7 @@ def start_agent(launch, worktree):
         "startedAt": now_iso(),
         "log": log_path,
         "repoPath": launch["repoPath"],
+        "url": launch.get("url", ""),
         "worktree": worktree,
     }
 
@@ -438,8 +566,9 @@ def slot_counts(config, state):
     return free_slots, running_per_repo, running_per_role
 
 
-def start_launches(launches, envs, state, dry_run):
+def start_launches(launches, envs, state, dry_run, announce=None):
     """Prepares each launch's worktree and starts its agent. Adds the runs and attempts to the state.
+    announce(run), when given, tells Discord that the agent started.
 
     Retros need no worktree: they read and save through goat.py, so they start in the repo's main checkout.
     envs: repo path -> that repo's .env, for the env files to copy into the worktree.
@@ -468,6 +597,8 @@ def start_launches(launches, envs, state, dry_run):
         state["runs"].append(run)
         state["attempts"][launch["attemptKey"]] = state["attempts"].get(launch["attemptKey"], 0) + 1
         log("Started: {} (pid {})".format(description, run["pid"]))
+        if announce is not None:
+            announce(run)
 
 
 def retro_items_of(boards, user_id, now):
@@ -549,7 +680,8 @@ def escalate_stalled(candidates, user_id, boards, running_items, attempts, now, 
 
 def tick(config, state, dry_run):
     """Runs one full turn. Returns a TickResult for the early-turn logic."""
-    prune_finished(state)
+    webhook = None if dry_run else discord_webhook(config)
+    prune_finished(state, activity_announcers(config, webhook)[1])
     repos = check_repos(config)
     candidates, user_id, boards, github_failed = read_boards(repos)
     if candidates is None:
@@ -557,7 +689,6 @@ def tick(config, state, dry_run):
         return TickResult(slot_skipped=False, github_failed=github_failed)
     running_items = {run["item"] for run in state["runs"]}
     now = datetime.now(timezone.utc)
-    webhook = None if dry_run else discord_webhook(config)
     if config["coordinator"].get("autoAdvanceMerged", DEFAULT_AUTO_ADVANCE_MERGED):
         advance_merged_boards(boards, user_id, dry_run, webhook, team.owner(config)["name"])
     retro_items = retro_items_of(boards, user_id, now)
@@ -599,7 +730,7 @@ def tick(config, state, dry_run):
     if not launches:
         log("Nothing to start. {} agent(s) running.".format(len(state["runs"])))
     envs = {board[0]: board[1] for board in boards}
-    start_launches(launches, envs, state, dry_run)
+    start_launches(launches, envs, state, dry_run, activity_announcers(config, webhook)[0])
     slot_skipped = any(is_slot_limit(reason) for _, reason in skipped)
     return TickResult(slot_skipped=slot_skipped, github_failed=github_failed)
 
@@ -635,7 +766,8 @@ def follow_up(config, state, run, dry_run):
     )
     for item_label, reason in skipped:
         log("Not starting {}: {}".format(item_label, reason))
-    start_launches(launches, {repo_path: env}, state, dry_run)
+    webhook = None if dry_run else discord_webhook(config)
+    start_launches(launches, {repo_path: env}, state, dry_run, activity_announcers(config, webhook)[0])
     return any(is_slot_limit(reason) for _, reason in skipped)
 
 
@@ -657,7 +789,7 @@ def start_follow_ups(config, state, dry_run, early):
     single-item follow-ups, so a waiting item with a higher priority gets the slot first. Otherwise it
     starts a follow-up for each ended run.
     """
-    finished = prune_finished(state)
+    finished = prune_finished(state, activity_announcers(config, None if dry_run else discord_webhook(config))[1])
     if finished:
         early.run_ended()
     if early.waiting_for_slot:
@@ -692,6 +824,10 @@ def wait_until(deadline, config, state, dry_run, keys, early):
         key = keys.wait_for_key(min(FOLLOW_UP_POLL_SECONDS, remaining))
         if current_beat:
             current_beat.alive()
+        if current_inbox is not None and current_inbox.is_due():
+            if current_inbox.poll(state):
+                log("Turn triggered by a Discord message.")
+                early.after_tick(run_one_tick(config, state, dry_run))
         if key in TRIGGER_KEYS:
             log("Turn triggered by user (r).")
             early.after_tick(run_one_tick(config, state, dry_run))
@@ -747,9 +883,12 @@ def command_run(args):
         len(config["repos"]), limits_text(config["coordinator"]), interval, count_text,
         " (dry run)" if args.dry_run else ""))
     log(aggregate_text(config["coordinator"]))
-    global current_beat
+    global current_beat, current_inbox
     previous_handler = None
     if not args.dry_run:
+        current_inbox = build_inbox(config)
+        if current_inbox is not None:
+            log("Discord inbox: listening for your commands (approve, send back, answer, status).")
         current_beat = health.Beat(os.getpid(), interval, path=health.HEARTBEAT_FILE)
         # A stop signal ends the run like Ctrl-C, so the heartbeat says "stopped on purpose".
         previous_handler = signal.signal(signal.SIGTERM, raise_keyboard_interrupt)
@@ -765,6 +904,7 @@ def command_run(args):
     except KeyboardInterrupt:
         log("Coordinator stopped. Agents it started keep running. Use `goat.py stop` to interrupt them.")
     finally:
+        current_inbox = None
         if current_beat:
             current_beat.stopped()
             current_beat = None

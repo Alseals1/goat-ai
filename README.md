@@ -104,9 +104,16 @@ You will see them in every comment header (for example `🤖 Priya · Review age
 
 ## Discord
 
-The team can post into a private Discord channel, each teammate under their own name, so you hear about a checkpoint without opening GitHub. **This version is outbound only**: it tells you, but you still approve by changing the label on GitHub.
+The team can post into a private Discord channel, each teammate under their own name, so you hear about a checkpoint without opening GitHub. **You can also answer from Discord**: type `approve 9` and the coordinator changes the label for you (see "Approving from Discord" below).
 
 **What you get.** One short message each time an issue starts waiting for you (a size check from Maya, a plan from Theo, a merge from Priya, or a question or chat from whoever was working), each with the issue as a link, a short excerpt of its summary, and what to do. Dex posts when a PR is merged and when an issue stalls. Each waiting state is announced once; a plan that comes back for a second review is announced again.
+
+**The play-by-play.** The same channel also gets three short messages about your own issues, and each says who the issue is on (**On:** Jordan, or **On:** you when it waits for you):
+- **An agent started.** Signed by that agent: "I'm starting on this one now."
+- **An agent finished.** Signed by that agent: "I'm done for now," or "I stopped with an error (exit 1). The log has the details." It says who has the issue next.
+- **A stage move.** Signed by Dex: "Moved from plan to implement." Moves into staging and done are skipped (the merge message and the retro cover them), and a restart of the coordinator does not announce issues it is seeing for the first time.
+
+`"discordActivity": false` in the coordinator config turns these three off and leaves the waiting, merge and stalled messages as they are.
 
 **Set up (once).**
 1. Create a private Discord server and a channel, for example `#dispatch`.
@@ -120,7 +127,45 @@ The team can post into a private Discord channel, each teammate under their own 
    ```
 4. Check it with `python3 ~/.goat-ai/goat.py discord-test`. It posts one message as Dex. `discord-test --as plan` posts as Theo.
 
-The same file can also hold `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_CHANNEL_DISPATCH` and `DISCORD_OWNER_USER_ID`. Those are for the two-way version (approving from Discord), which is not built yet, so they are not used.
+### Approving from Discord
+
+Type in a private **#approvals** channel (only you and the bot can see it):
+
+| You type | What the coordinator does |
+| --- | --- |
+| `start 9` (or `start 9: assign me`) | Releases a backlog issue: assigns it to you, then sets `stage:intake` and `goat:ready`. Refused if the issue is closed, already in the factory, past the backlog, or assigned to someone else |
+| `approve 9` | Swaps `goat:tier-review` or `goat:plan-review` for `goat:approved` on issue 9 |
+| `send back 9: add a skip button` | Comments your note, then sets `goat:ready` (a merge checkpoint goes back to `stage:implement`) |
+| `answer 9: yes, use Birmingham` | Comments your answer on an agent's question, then sets `goat:ready` |
+| `status` | Lists what is waiting on you |
+| `help` | Lists these commands |
+
+Dex replies in the channel, the issue gets a note ("approved in Discord"), and a turn runs at once so the next agent starts.
+
+**Who does it.** Not an agent. The coordinator reads the channel and makes the same label change you would make by hand, with your own `gh` login. Agents never read Discord and never change a gate label.
+
+**Set up (once).** In the same `~/.goat-ai/discord.env`:
+```
+DISCORD_BOT_TOKEN=the-bot-token
+DISCORD_GUILD_ID=your-server-id
+DISCORD_OWNER_USER_ID=your-user-id
+```
+1. In the Discord Developer Portal, open your application, then **Bot**, and switch on **Message Content Intent**. Save.
+2. In your server, create a private text channel named `approvals` and add the bot to it (channel settings, Permissions, add the bot with View Channel, Send Messages and Read Message History). To use another name, put its id in `DISCORD_CHANNEL_APPROVALS`.
+3. Run `python3 ~/.goat-ai/goat.py discord-check`. It tells you what is missing and sends nothing.
+4. Start the coordinator. It logs `Discord inbox: listening for your commands`.
+
+**The safety rules.**
+- Only your account counts: the message must come from `DISCORD_OWNER_USER_ID`, in the approvals channel, and not from a bot. Anyone else is ignored.
+- You name the issue number, and the issue must be open, assigned to you, free of any agent, and waiting at the gate that command is for (`start` is the exception: it is for a backlog issue that nobody else owns, and it assigns it to you). Otherwise nothing changes and Dex says why.
+- **A merge never happens from Discord.** `approve` on a merge checkpoint is refused: merge the PR on GitHub.
+- A message is only run if it was sent after this coordinator started and is under 30 minutes old. Anything earlier is skipped and Dex says so ("I had not started listening when you sent that"), so a command typed while the coordinator was off never runs late, and is never silently ignored.
+- Each message is looked at once. The coordinator marks it seen before acting, so a crash can lose a command (you get no reply: type it again) but never runs one twice.
+- Your note is saved as plain text in a comment, and agents read it as information, like any comment.
+- Replies never ping anyone. The bot token is a secret like the webhook URL: never printed, and agents are blocked from reading it.
+- If someone takes over your Discord account, they could approve a size or a plan (never a merge). Turn on two-step verification for your Discord account.
+
+It only works while the coordinator is running, and it checks the channel every 15 seconds. `"discordReplies": false` in the coordinator config turns it off.
 
 **Good to know.**
 - Messages are sent by the coordinator, so they only appear while it is running.

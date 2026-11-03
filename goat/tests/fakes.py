@@ -130,6 +130,13 @@ class FakeClient:
                 item["labels"].append(name)
         self._wrote("labels", int(number), {"add": list(add), "remove": list(remove)})
 
+    def add_assignees(self, number, logins):
+        item = self.items[int(number)]
+        for login in logins:
+            if login not in item["assignees"]:
+                item["assignees"].append(login)
+        self._wrote("assign", int(number), list(logins))
+
     def create_comment(self, number, body):
         self.next_comment_id += 1
         comment = {"id": self.next_comment_id, "created_at": UPDATED, "author": self.user["id"], "body": body}

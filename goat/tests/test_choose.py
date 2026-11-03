@@ -222,7 +222,7 @@ class ChooseRetrosTests(unittest.TestCase):
         launches, skipped, waiting = choose_retro([done("1")])
         self.assertEqual(launches, [{
             "item": "1", "ref": "1", "label": "#1 Item 1", "role": "retro", "model": "sonnet",
-            "repoPath": "/code/project", "attemptKey": "retro:1"}])
+            "repoPath": "/code/project", "url": "", "attemptKey": "retro:1"}])
         self.assertEqual((skipped, waiting), ([], 0))
 
     def test_skips_items_with_a_note_and_used_up_attempts_without_a_line(self):

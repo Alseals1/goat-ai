@@ -1,9 +1,12 @@
-"""Sends messages to a Discord channel through a webhook. Outbound only.
+"""Talks to Discord: sends messages through a webhook, and reads the owner's replies with the bot.
 
 The webhook URL is in ~/.goat-ai/discord.env (outside the repository), as DISCORD_WEBHOOK_DISPATCH. It is a secret:
 anyone who has it can post to the channel. This module never prints it, never puts it in an error message, and the
 file is never committed. A webhook lets each message carry its own name, so Maya, Theo and Priya each post as
 themselves.
+
+The bot token (DISCORD_BOT_TOKEN, same file, same rules) is only used to read the approvals channel and to answer
+in it (goat/inbox.py decides what a message means). It is never printed or put in an error message either.
 
 Safety, by design:
 - Every message sets `allowed_mentions` to none, so text from an issue title can never ping @everyone or a role.
@@ -25,6 +28,15 @@ from goat.config import LOCAL_DIR, parse_env_file
 
 ENV_FILE = os.path.join(LOCAL_DIR, "discord.env")
 WEBHOOK_KEY = "DISCORD_WEBHOOK_DISPATCH"
+BOT_TOKEN_KEY = "DISCORD_BOT_TOKEN"
+GUILD_KEY = "DISCORD_GUILD_ID"
+OWNER_KEY = "DISCORD_OWNER_USER_ID"
+APPROVALS_KEY = "DISCORD_CHANNEL_APPROVALS"
+APPROVALS_CHANNEL_NAME = "approvals"
+API = "https://discord.com/api/v10"
+# Application flag bits: Message Content Intent is on for the app (limited = a bot that is not verified).
+MESSAGE_CONTENT_FLAGS = (1 << 18) | (1 << 19)
+SNOWFLAKE = re.compile(r"^\d{5,25}$")
 WEBHOOK_URL = re.compile(r"^https://(?:canary\.|ptb\.)?discord(?:app)?\.com/api/(?:v\d+/)?webhooks/\d+/[\w-]+$")
 SYSTEM_CERTIFICATES = ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt")
 TIMEOUT_SECONDS = 15
@@ -94,40 +106,124 @@ class Webhook:
         body = json.dumps(self.payload(username, content, embed)).encode()
         request = urllib.request.Request(self.url, data=body, method="POST", headers={
             "Content-Type": "application/json", "User-Agent": "goat-ai (private, 0.1)"})
-        for attempt in range(RETRIES + 1):
-            try:
-                with self.opener(request, TIMEOUT_SECONDS):
-                    return
-            except urllib.error.HTTPError as error:
-                retry_after = self.retry_delay(error)
-                if error.code == 429 and attempt < RETRIES and retry_after is not None:
-                    self.sleep(retry_after)
-                    continue
-                if error.code >= 500 and attempt < RETRIES:
-                    self.sleep(2)
-                    continue
-                raise DiscordError("Discord returned HTTP {} ({}).".format(error.code, self.explain(error.code)))
-            except (urllib.error.URLError, OSError) as error:
-                if attempt < RETRIES:
-                    self.sleep(2)
-                    continue
-                raise DiscordError("Could not reach Discord: {}".format(self.hide(getattr(error, "reason", error))))
+        call(request, self.opener, self.sleep, self.hide, "the webhook")
 
-    @staticmethod
-    def retry_delay(error):
+    retry_delay = staticmethod(lambda error: retry_delay(error))
+    explain = staticmethod(lambda code: explain(code, "the webhook"))
+
+
+def retry_delay(error):
+    try:
+        wait = float(json.loads(error.read().decode() or "{}").get("retry_after"))
+    except (ValueError, TypeError, OSError, AttributeError):
+        return None
+    return min(max(wait, 0.0), MAX_WAIT_SECONDS)
+
+
+def explain(code, subject="the webhook"):
+    webhook = subject == "the webhook"
+    return {400: "Discord rejected the message", 401: "{} is not valid".format(subject),
+            403: "not allowed to post there" if webhook else "the bot cannot see or write in that channel",
+            404: "the webhook was deleted or the URL is wrong" if webhook else "that channel or message was not found",
+            429: "rate limited"}.get(code, "see Discord status")
+
+
+def call(request, opener, sleep, hide, subject, want_body=False):
+    """Sends one request with a few retries for rate limits and Discord hiccups. Returns the body when asked.
+
+    Raises DiscordError. `hide` removes the secret from any text before it goes into an error."""
+    for attempt in range(RETRIES + 1):
         try:
-            wait = float(json.loads(error.read().decode() or "{}").get("retry_after"))
-        except (ValueError, TypeError, OSError, AttributeError):
-            return None
-        return min(max(wait, 0.0), MAX_WAIT_SECONDS)
+            with opener(request, TIMEOUT_SECONDS) as response:
+                return response.read() if want_body else None
+        except urllib.error.HTTPError as error:
+            wait = retry_delay(error)
+            if error.code == 429 and attempt < RETRIES and wait is not None:
+                sleep(wait)
+                continue
+            if error.code >= 500 and attempt < RETRIES:
+                sleep(2)
+                continue
+            raise DiscordError("Discord returned HTTP {} ({}).".format(error.code, explain(error.code, subject)))
+        except (urllib.error.URLError, OSError) as error:
+            if attempt < RETRIES:
+                sleep(2)
+                continue
+            raise DiscordError("Could not reach Discord: {}".format(hide(getattr(error, "reason", error))))
+
+
+class Bot:
+    """Reads and writes channel messages as the bot (REST only: no gateway connection, no extra libraries)."""
+
+    def __init__(self, token, opener=None, sleep=time.sleep):
+        token = (token or "").strip()
+        if not token or re.search(r"\s", token):
+            raise DiscordError("{} is missing or does not look like a bot token.".format(BOT_TOKEN_KEY))
+        self.token = token
+        self.opener = opener or Webhook.open
+        self.sleep = sleep
+
+    def hide(self, text):
+        return str(text).replace(self.token, "[token]")
+
+    def request(self, method, path, payload=None):
+        data = json.dumps(payload).encode() if payload is not None else None
+        request = urllib.request.Request(API + path, data=data, method=method, headers={
+            "Authorization": "Bot " + self.token, "Content-Type": "application/json",
+            "User-Agent": "DiscordBot (goat-ai, 0.1)"})
+        body = call(request, self.opener, self.sleep, self.hide, "the bot token", want_body=True)
+        try:
+            return json.loads((body or b"").decode() or "null")
+        except ValueError:
+            raise DiscordError("Discord returned something that is not JSON.")
+
+    def me(self):
+        """The bot's own account: {"id", "username", ...}."""
+        return self.request("GET", "/users/@me") or {}
+
+    def application_flags(self):
+        """The application's flag bits (includes whether Message Content Intent is on)."""
+        return int((self.request("GET", "/applications/@me") or {}).get("flags") or 0)
+
+    def channels(self, guild_id):
+        """The text channels of the server: [{"id", "name", ...}]."""
+        self.need_id(guild_id, GUILD_KEY)
+        return [c for c in self.request("GET", "/guilds/{}/channels".format(guild_id)) or [] if c.get("type") == 0]
+
+    def newest_message_id(self, channel_id):
+        """The id of the newest message in the channel, or "0" when it is empty."""
+        self.need_id(channel_id, "channel id")
+        found = self.request("GET", "/channels/{}/messages?limit=1".format(channel_id)) or []
+        return str(found[0]["id"]) if found else "0"
+
+    def messages_after(self, channel_id, after, limit=50):
+        """Messages newer than the id `after`, oldest first."""
+        self.need_id(channel_id, "channel id")
+        self.need_id(after, "message id", allow_zero=True)
+        found = self.request("GET", "/channels/{}/messages?after={}&limit={}".format(channel_id, after, limit)) or []
+        return sorted(found, key=lambda message: int(message["id"]))
+
+    def send(self, channel_id, content, reply_to=None):
+        """Posts a plain message in the channel. Never pings anyone."""
+        self.need_id(channel_id, "channel id")
+        payload = {"content": clean(content, MAX_CONTENT), "allowed_mentions": {"parse": []}}
+        if reply_to:
+            payload["message_reference"] = {"message_id": str(reply_to), "fail_if_not_exists": False}
+        self.request("POST", "/channels/{}/messages".format(channel_id), payload)
 
     @staticmethod
-    def explain(code):
-        return {400: "Discord rejected the message", 401: "the webhook is not valid", 403: "not allowed to post there",
-                404: "the webhook was deleted or the URL is wrong", 429: "rate limited"}.get(code, "see Discord status")
+    def need_id(value, name, allow_zero=False):
+        if not (SNOWFLAKE.match(str(value or "")) or (allow_zero and str(value) == "0")):
+            raise DiscordError("The {} is missing or not a Discord id.".format(name))
 
 
 def from_settings(values):
     """A Webhook from the env-file values, or None when no webhook is set."""
     url = (values or {}).get(WEBHOOK_KEY, "").strip()
     return Webhook(url) if url else None
+
+
+def bot_from_settings(values):
+    """A Bot from the env-file values, or None when there is no bot token."""
+    token = (values or {}).get(BOT_TOKEN_KEY, "").strip()
+    return Bot(token) if token else None

@@ -195,6 +195,11 @@ class GitHubClient:
         if add or remove:
             self.gh(args)
 
+    def add_assignees(self, number, logins):
+        """Adds assignees (GitHub logins). Adding someone who is already assigned is not an error."""
+        if logins:
+            self.gh(["issue", "edit", str(int(number)), "--repo", self.repo, "--add-assignee", ",".join(logins)])
+
     def create_comment(self, number, body):
         return self.api("POST", "repos/{repo}/issues/%s/comments" % int(number), {"body": body})["id"]
 

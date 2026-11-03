@@ -366,6 +366,138 @@ class CoordinatorDiscordTests(unittest.TestCase):
         self.assertTrue(any("Would tell Discord" in line for line in self.logs) is False)  # already announced: nothing to say
 
 
+class ActivityTests(unittest.TestCase):
+    """The activity feed: an agent started, an agent finished, an issue moved. Each one says who the issue is on."""
+
+    def setUp(self):
+        self.logs = []
+
+    def moves(self, webhook, items, state, dry_run=False, user="me"):
+        return messenger.tell_stage_moves(webhook, [("/code/a", item) for item in items], user, state, SHARED, "Pat", NOW,
+                                          dry_run, self.logs.append)
+
+    def test_a_started_message_is_from_the_agent_and_the_issue_is_on_them(self):
+        username, content, embed = messenger.started_message("implement", "#5 Thing", "https://x/5", "opus", SHARED)
+        self.assertEqual(username, "Jordan · Implement agent")
+        self.assertEqual(embed["url"], "https://x/5")
+        self.assertIn("**On:** Jordan", embed["description"])
+
+    def test_a_finished_message_says_how_it_ended_and_who_has_it_now(self):
+        _, content, embed = messenger.finished_message("implement", "#5 Thing", "u", 0, "Priya", SHARED)
+        self.assertEqual(content, "I'm done for now.")
+        self.assertIn("**On:** Priya", embed["description"])
+        _, failed, red = messenger.finished_message("plan", "#5 Thing", "u", 1, None, SHARED)
+        self.assertIn("exit 1", failed)
+        self.assertNotIn("description", red)
+        self.assertNotEqual(red["color"], embed["color"])
+        _, lost, _ = messenger.finished_message("plan", "#5 Thing", "u", "unknown", None, SHARED)
+        self.assertEqual(lost, "I'm done for now.")
+
+    def test_who_it_is_on(self):
+        def on(**kwargs):
+            return messenger.on_whom(item_of(**kwargs), SHARED, "Pat", NOW)
+        self.assertEqual(on(stage="plan", goat_status="plan-review"), "Pat")
+        self.assertEqual(on(stage="plan", goat_status="answer-question"), "Pat")
+        self.assertEqual(on(stage="plan", goat_status="ready"), "Theo")
+        self.assertEqual(on(stage="plan", goat_status="approved"), "Jordan")
+        self.assertEqual(messenger.on_whom(item_of(stage="plan", goat_status="ready"), {}, "", NOW), "Plan agent")
+        self.assertEqual(messenger.on_whom(item_of(stage="plan", goat_status="plan-review"), SHARED, "", NOW), "you")
+
+    def test_the_first_sighting_is_recorded_without_a_message(self):
+        webhook, state = FakeWebhook(), {}
+        self.assertEqual(self.moves(webhook, [item_of(stage="plan", goat_status="ready")], state), 0)
+        self.assertEqual(webhook.sent, [])
+        self.assertEqual(list(state["stages"].values()), ["plan"])
+
+    def test_a_stage_move_is_announced_once_by_dex_and_says_who_it_is_on(self):
+        webhook, state = FakeWebhook(), {}
+        self.moves(webhook, [item_of(stage="plan", goat_status="approved")], state)
+        moved = [item_of(stage="implement", goat_status="ready")]
+        self.assertEqual(self.moves(webhook, moved, state), 1)
+        self.assertEqual(self.moves(webhook, moved, state), 0)
+        username, content, embed = webhook.sent[0]
+        self.assertEqual(username, "Dex · Dispatcher")
+        self.assertEqual(content, "Moved from plan to implement.")
+        self.assertIn("**On:** Jordan", embed["description"])
+
+    def test_moves_into_staging_and_done_are_left_to_the_merge_message(self):
+        webhook, state = FakeWebhook(), {}
+        self.moves(webhook, [item_of(stage="review", goat_status="merge-review")], state)
+        self.moves(webhook, [item_of(stage="staging", goat_status="ready")], state)
+        self.assertEqual(webhook.sent, [])
+
+    def test_other_peoples_issues_are_not_announced(self):
+        webhook, state = FakeWebhook(), {}
+        self.moves(webhook, [item_of(stage="plan", goat_status="ready")], state, user="someone-else")
+        self.assertEqual(state["stages"], {})
+
+    def test_a_failed_send_is_tried_again_next_turn_and_never_raises(self):
+        state = {}
+        self.moves(FakeWebhook(), [item_of(stage="plan", goat_status="approved")], state)
+        moved = [item_of(stage="implement", goat_status="ready")]
+        self.assertEqual(self.moves(FakeWebhook(fail=True), moved, state), 0)
+        self.assertTrue(any("could not announce" in line for line in self.logs))
+        webhook = FakeWebhook()
+        self.assertEqual(self.moves(webhook, moved, state), 1)
+
+    def test_a_dry_run_sends_and_records_nothing(self):
+        webhook, state = FakeWebhook(), {}
+        self.moves(webhook, [item_of(stage="plan", goat_status="approved")], state)
+        self.moves(webhook, [item_of(stage="implement", goat_status="ready")], state, dry_run=True)
+        self.assertEqual(webhook.sent, [])
+        self.assertEqual(list(state["stages"].values()), ["plan"])
+        self.assertTrue(any("Would tell Discord" in line for line in self.logs))
+
+    def test_a_closed_issue_is_forgotten(self):
+        state = {}
+        self.moves(FakeWebhook(), [item_of(stage="plan", goat_status="ready")], state)
+        self.moves(FakeWebhook(), [item_of("6", stage="plan", goat_status="ready")], state)
+        self.assertEqual(len(state["stages"]), 1)
+
+    def test_the_coordinator_wires_started_and_finished_and_can_turn_them_off(self):
+        webhook = FakeWebhook()
+        config = {"coordinator": {}, "owner": {"name": "Pat"}}
+        run = {"item": "5", "label": "#5 Thing", "role": "implement", "model": "opus", "url": "u", "repoPath": "/code/a"}
+        with mock.patch.object(coordinator, "load_shared", lambda: SHARED), \
+                mock.patch.object(coordinator, "read_item", lambda path, number: (item_of(stage="review", goat_status="ready"), "me", {})):
+            on_start, on_finish = coordinator.activity_announcers(config, webhook)
+            on_start(run)
+            on_finish(run, 0)
+            on_start(dict(run, role="retro-aggregate"))
+            self.assertEqual([sent[0] for sent in webhook.sent], ["Jordan · Implement agent"] * 2)
+            self.assertIn("**On:** Priya", webhook.sent[1][2]["description"])
+            self.assertEqual(coordinator.activity_announcers({"coordinator": {"discordActivity": False}}, webhook), (None, None))
+            self.assertEqual(coordinator.activity_announcers(config, None), (None, None))
+
+
+class TickStageMoveTests(unittest.TestCase):
+    def tick_with(self, items_by_turn, coordinator_config=None):
+        webhook, state = FakeWebhook(), {"runs": [], "attempts": {}}
+        config = {"repos": {}, "coordinator": dict({"maxAgents": 3, "maxAgentsPerRepo": None, "maxAgentsByRole": {},
+                                                    "autoAdvanceMerged": False,
+                                                    "retro": {"aggregateMinRetros": 15, "aggregateMinDays": 3}},
+                                                   **(coordinator_config or {})), "owner": {"name": "Pat"}}
+        for item in items_by_turn:
+            client = FakeClient(raw_item("5"))
+            boards = [("/code/a", {}, client, {"doneLabel": "done"}, [item])]
+            with mock.patch.object(coordinator, "check_repos", lambda config: {}), \
+                    mock.patch.object(coordinator, "read_boards", lambda repos, item=item, boards=boards: ([("/code/a", item)], "me", boards, False)), \
+                    mock.patch.object(coordinator, "prune_finished"), mock.patch.object(coordinator, "clean_up_boards"), \
+                    mock.patch.object(coordinator, "start_launches"), mock.patch.object(coordinator, "load_shared", lambda: SHARED), \
+                    mock.patch.object(coordinator, "discord_webhook", lambda config: webhook), mock.patch.object(coordinator, "log"):
+                coordinator.tick(config, state, False)
+        return webhook
+
+    def test_a_tick_announces_a_stage_move(self):
+        webhook = self.tick_with([item_of(stage="plan", goat_status="approved"), item_of(stage="implement", goat_status="ready")])
+        self.assertEqual([(sent[0], sent[1]) for sent in webhook.sent], [("Dex · Dispatcher", "Moved from plan to implement.")])
+
+    def test_discord_activity_false_turns_the_moves_off(self):
+        webhook = self.tick_with([item_of(stage="plan", goat_status="approved"), item_of(stage="implement", goat_status="ready")],
+                                 {"discordActivity": False})
+        self.assertEqual(webhook.sent, [])
+
+
 class DiscordTestCommandTests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
