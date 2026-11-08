@@ -17,6 +17,7 @@ This repo is the **factory**. The app it builds lives in a **separate repo** (se
 | `skills/goat/` | General skill: runs `goat.py guide`, then uses the CLI |
 | `skills/goat-board/` | Board status skill, and `protocol.md`: the rules every role skill follows |
 | `skills/goat-intake/`, `goat-plan/`, `goat-implement/`, `goat-review/` | The four role skills |
+| `skills/goat-qa/` | The QA skill: runs the app on local services in a browser and files bugs and UX or UI recommendations as backlog issues. See [QA](#qa) |
 | `skills/goat-retro/`, `goat-retro-aggregate/` | The retro skills: one reviews a closed issue and saves a local note; the aggregate finds patterns across notes and adds improvement issues. See [Retros](#retros) |
 | `scripts/install.sh` | Links the skills and the CLI, and creates the local config with default agent limits |
 | `docs/` | The design |
@@ -92,6 +93,7 @@ Every role has a first name, so a thread on an issue reads like a small team wor
 | Implement | **Jordan** | Upbeat and quick; says what got built and what to watch |
 | Review | **Priya** | Sharp and fair; credits good work, then states what must change |
 | Retro | **Sam** | Reflective and honest; what to repeat, what to change, no blame |
+| QA | **Quinn** | Hands-on and skeptical; says what a first-time user would see and where they get stuck |
 | Dispatcher (the coordinator) | **Dex** | Keeps things moving; short pings that say what needs a person |
 
 You will see them in every comment header (for example `🤖 Priya · Review agent · handoff · G.O.A.T. 0.1.0`), in the comments the coordinator writes (Dex signs merges, stalled issues and stranded stacks), and in desktop notifications.
@@ -214,6 +216,24 @@ The coordinator starts it when at least 15 notes wait **and** at least 3 days pa
 ```
 
 `repo` is a key of `repos`. If no entry matches, the coordinator logs that and does not start the aggregate.
+
+## QA
+
+The QA agent (`/goat-qa`, on Sonnet) uses the app the way a first-time user would. It is not a stage agent: the coordinator never starts it, it never claims an issue, and it never blocks a merge. Run it in the project repo's main checkout when you want the app exercised, for example after a batch of PRs merged:
+
+```sh
+/goat-qa            # sweep the main flows on the current default branch
+/goat-qa 33         # focus on the screens issue 33 changed
+```
+
+What it does:
+1. Reads the project's `CLAUDE.md`, README and specs to list the flows, then starts the **local** database and the web build (for an Expo app, `expo start --web`). It stops if the project's Supabase URL is not `127.0.0.1` or `localhost`.
+2. Drives the app in a browser with Playwright at a phone viewport, from a tooling folder under `~/.goat-ai/qa/tools`, so the project gets no new dependency. It takes screenshots and records console errors and failed requests, and tries the unhappy paths.
+3. Sorts findings into **Bug**, **UX add**, **UX cut** and **UI**, each with a severity and a screenshot.
+4. Files the top 5 at most with `goat.py add` (never `--ready`), so they land in `stage:discovery` for you to triage. It skips duplicates of work in the pipeline and of its own earlier reports. It cannot see backlog issues you filed by hand.
+5. Saves one report with screenshots in `~/.goat-ai/qa/<repo>/<date>/report.md`, including what only a real device can check.
+
+It tests the web build, so it cannot judge haptics, native gestures or performance on a phone: the report lists those under "Needs a device pass". It runs only on local services with sample data, and never changes the project's files. The rules are in protocol section 16.
 
 ## Add an issue
 

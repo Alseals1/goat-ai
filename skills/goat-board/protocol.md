@@ -10,7 +10,7 @@ python3 ~/.goat-ai/goat.py <command> ...
 
 Always spell out that full path and run it inside the project repo (the main checkout or the issue's worktree). Do not use `gh api`, `gh issue`, `gh label`, `curl` against GitHub, or any GitHub MCP tool: `goat.py` does what you need. The reasoning behind the design is in `docs/design.md`.
 
-**Section map** (skills refer to these numbers): 1 Set up · 2 Reading an issue · 3 Claim · 4 Pick up context · 5 Posts · 6 Checkpoints and renewal · 7 Questions and live chat · 8 Release · 9 Gates · 10 Models and subagents · 11 Safety rules · 12 Run records · 13 Headless runs · 14 Retro agents · 15 PR stacks.
+**Section map** (skills refer to these numbers): 1 Set up · 2 Reading an issue · 3 Claim · 4 Pick up context · 5 Posts · 6 Checkpoints and renewal · 7 Questions and live chat · 8 Release · 9 Gates · 10 Models and subagents · 11 Safety rules · 12 Run records · 13 Headless runs · 14 Retro agents · 15 PR stacks · 16 QA agent.
 
 ---
 
@@ -295,3 +295,13 @@ Never run `gh stack merge`, `modify` or `unstack`, nor a bare `view`, `submit`, 
 - The issue's PR link is the bottom PR: `release --pr <bottom PR url>`.
 - The handoff's `Where:` line lists every branch and PR, bottom to top.
 - Each PR body says which part it is ("Part 2 of 3") and contains the line `Refs #<issue number>`. Never write `Closes`, `Fixes` or `Resolves`: a merge must not close the issue, because a person closes it when it is finished.
+
+## 16. QA agent
+
+`goat-qa` is not a stage agent, and the coordinator never starts it: a person runs `/goat-qa` when they want the app exercised. It starts the project's app on local services, walks its screens in a browser, and files what it finds as backlog issues. For it these rules replace sections 3 to 9:
+
+- **No claim, no lease, no release.** It never changes an issue's stage or labels and never posts to an issue thread. Never run `claim`, `renew`, `post`, `doc`, `summary` or `release`. With an issue number it reads that issue with `goat.py show` only.
+- **Local only.** The app and database run on this machine with sample data. `EXPO_PUBLIC_SUPABASE_URL` (or the project's equivalent) must be `127.0.0.1` or `localhost`, or the run stops. Section 11 still applies in full: no hosted service, no build or release, no secret printed or screenshotted.
+- **Write only through `goat.py add`, plus its own report folder.** It may create at most 5 issues per run, never with `--ready`, so each lands in `stage:discovery` with no `goat:` label. It writes its report and screenshots under `~/.goat-ai/qa/<repo name>/<date>/`, and its browser tooling under `~/.goat-ai/qa/tools`. It never edits, installs into, commits to or pushes from the project.
+- **No duplicates.** `goat.py list` cannot see backlog issues (no `goat:` label), so before filing it reads `goat.py list --json` and the "Filed" lists of earlier reports, and checks each earlier issue with `goat.py show`.
+- **If a step fails or is denied**, stop and say why in the final reply. Do not look for a workaround.

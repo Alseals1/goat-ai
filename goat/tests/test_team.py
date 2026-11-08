@@ -37,6 +37,10 @@ class PersonaTests(unittest.TestCase):
     def test_the_aggregate_retro_uses_the_retro_agents_name(self):
         self.assertEqual(team.signature(SHARED, "retro-aggregate"), "Sam · Retro agent")
 
+    def test_the_qa_agent_title_keeps_its_capitals(self):
+        self.assertEqual(team.title("qa"), "QA agent")
+        self.assertEqual(team.signature({"agents": {"qa": {"name": "Quinn"}}}, "qa"), "Quinn · QA agent")
+
     def test_damaged_config_never_raises(self):
         for bad in ({"agents": "nope"}, {"agents": {"plan": "Theo"}}, {"agents": {"plan": {"name": None}}}):
             self.assertEqual(team.signature(bad, "plan"), "Plan agent")
@@ -69,13 +73,13 @@ class ShippedCastTests(unittest.TestCase):
         self.shared = config.load_shared()
 
     def test_every_role_has_a_name_and_a_voice(self):
-        for role in ("intake", "plan", "implement", "review", "retro", "dispatcher"):
+        for role in ("intake", "plan", "implement", "review", "retro", "qa", "dispatcher"):
             who = team.persona(self.shared, role)
             self.assertTrue(who["name"], role)
             self.assertTrue(who["voice"], role)
 
     def test_names_are_unique_single_first_names(self):
-        names = [team.persona(self.shared, role)["name"] for role in ("intake", "plan", "implement", "review", "retro", "dispatcher")]
+        names = [team.persona(self.shared, role)["name"] for role in ("intake", "plan", "implement", "review", "retro", "qa", "dispatcher")]
         self.assertEqual(len(names), len(set(names)))
         for name in names:
             self.assertRegex(name, r"^[A-Z][a-z]+$")

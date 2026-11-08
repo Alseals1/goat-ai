@@ -14,7 +14,7 @@ import json
 DISPATCHER = "dispatcher"
 # The aggregate retro is the retro agent's job, so it uses the retro agent's name.
 ALIASES = {"retro-aggregate": "retro"}
-ROLE_TITLES = {"dispatcher": "Dispatcher"}
+ROLE_TITLES = {"dispatcher": "Dispatcher", "qa": "QA agent"}
 
 
 def cast(shared):
@@ -74,7 +74,7 @@ def lines(shared, local_config=None, only_role=None):
     boss = owner(local_config)
     if boss["name"] and only_role is None:
         out.append("Owner: {}{}".format(boss["name"], ", " + boss["title"] if boss["title"] else ""))
-    roles = [only_role] if only_role else ["intake", "plan", "implement", "review", "retro", DISPATCHER]
+    roles = [only_role] if only_role else ["intake", "plan", "implement", "review", "retro", "qa", DISPATCHER]
     for role in roles:
         who = persona(shared, role)
         name = who["name"] or "(no name set)"

@@ -6,7 +6,12 @@
       "Bash(gh pr view *)",
       "Bash(gh pr diff *)",
       "Bash(gh pr list *)",
-      "Bash(gh pr checks *)"
+      "Bash(gh pr checks *)",
+      "Bash(npx supabase start*)",
+      "Bash(npx supabase status*)",
+      "Bash(npx supabase db reset)",
+      "Bash(npx expo start *)",
+      "Bash(npx playwright *)"
     ],
     "deny": [
       "Bash(python3 */goat.py run*)",
@@ -64,6 +69,8 @@
       "Bash(supabase projects *)",
       "Bash(npx supabase link *)",
       "Bash(npx supabase db push *)",
+      "Bash(npx supabase db reset *--linked*)",
+      "Bash(npx supabase db reset *--db-url*)",
       "Bash(npx supabase functions deploy *)",
       "Bash(vercel *)",
       "Bash(netlify *)",

@@ -104,6 +104,8 @@ Only the goat-intake, goat-plan, goat-implement and goat-review skills run these
 
 Only goat-retro and goat-retro-aggregate use these. They read and write local files only, and `retro-save` refuses an issue that is not yours or is still open. See section 14 of the protocol.
 
+**QA agent only:** goat-qa has no commands of its own. It reads with `list` and `show`, and files findings with `add` (never `--ready`, at most 5 per run). It never claims, posts or releases. It starts the project's app on local services and writes its report under `~/.goat-ai/qa/`. See section 16 of the protocol.
+
 **People only:**
 
 | Command | What it does |
