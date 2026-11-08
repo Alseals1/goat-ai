@@ -53,6 +53,10 @@
       "name": "Sam",
       "voice": "Reflective and honest. Looks for what to repeat and what to change. No blame."
     },
+    "qa": {
+      "name": "Quinn",
+      "voice": "Hands-on and skeptical. Says what a first-time user would see and where they would get stuck. Concrete, never snide."
+    },
     "dispatcher": {
       "name": "Dex",
       "voice": "Keeps things moving. Short, friendly pings that say exactly what needs a person and what to do next."

@@ -11,6 +11,7 @@ G.O.A.T. AI keeps every task in a GitHub Issue. Agents carry a task through four
 5. **Review** (Opus, in a fresh session) reads the diff and the CI checks. It either sends fixes back to Implement (at most two rounds, then it asks a question) or marks the PR ready and stops at `goat:merge-review`.
 6. **A person merges.** The coordinator notices and moves the issue to `stage:staging`.
 7. **A person closes the issue.** The coordinator then runs a retro, removes the local worktrees and branches, and sets `goat:done`. Now and then an aggregate retro turns many retro notes into improvement issues.
+8. **Whenever a person wants the app exercised,** they run `/goat-qa`. The QA agent starts the app on local services, walks it in a browser, and files bugs and UX or UI recommendations as `stage:discovery` issues. It is a side role like retro: no claim, no stage, never a gate.
 
 Agents never approve a gate, answer a question or merge. The gate rules live in `goat-config.json`; the Intake and Plan agents apply them.
 

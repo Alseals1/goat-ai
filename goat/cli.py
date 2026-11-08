@@ -190,7 +190,7 @@ def command_team(args):
     except (OSError, ValueError):
         pass
     if args.json:
-        roles = [args.role] if args.role else ["intake", "plan", "implement", "review", "retro", team.DISPATCHER]
+        roles = [args.role] if args.role else ["intake", "plan", "implement", "review", "retro", "qa", team.DISPATCHER]
         print_json({"version": views_json.VERSION, "owner": team.owner(local),
                     "team": {role: team.persona(shared, role) for role in roles}})
         return
@@ -472,14 +472,14 @@ def build_parser():
 
     team_command = add("team", command_team, "show the team: each agent's first name and voice, and the owner",
                        GOAT + " team --role plan", item=False)
-    team_command.add_argument("--role", choices=("intake", "plan", "implement", "review", "retro", "dispatcher"),
+    team_command.add_argument("--role", choices=("intake", "plan", "implement", "review", "retro", "qa", "dispatcher"),
                               help="show one role only")
     team_command.add_argument("--json", action="store_true", help=json_help)
     discord_test = add("discord-test", command_discord_test,
                        "send one test message to your Discord channel, signed by a teammate (default: Dex)",
                        GOAT + " discord-test --as plan", item=False)
     discord_test.add_argument("--as", dest="role", default=team.DISPATCHER,
-                              choices=("intake", "plan", "implement", "review", "retro", "dispatcher"),
+                              choices=("intake", "plan", "implement", "review", "retro", "qa", "dispatcher"),
                               help="which teammate signs it (default: dispatcher)")
     add("discord-check", command_discord_check,
         "check the Discord reply setup (token, #approvals, Message Content Intent). Sends nothing",
