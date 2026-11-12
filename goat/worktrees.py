@@ -94,6 +94,42 @@ def prepare(repo, ref):
     return path
 
 
+# The autopilot's QA worktree folder, next to the issue worktrees. Not an issue number, so the cleanup leaves it alone.
+QA_FOLDER = "qa"
+
+
+def prepare_qa(repo):
+    """Makes or refreshes the autopilot's QA worktree, detached at origin/<default branch>, and returns its path.
+    Call fetch() first.
+
+    QA tests the default branch as merged. Untracked files (installed packages, test output) are kept between runs;
+    a change to a tracked file means something went wrong, so it raises WorktreeError instead of throwing it away.
+    """
+    path = worktree_path(repo, QA_FOLDER)
+    target = "origin/" + default_branch(repo)
+    if not os.path.exists(path):
+        os.makedirs(goat_folder(repo), exist_ok=True)
+        run_git(repo, "worktree", "prune")
+        code, _, err = run_git(repo, "worktree", "add", "--detach", path, target)
+        if code != 0:
+            raise WorktreeError("could not make the QA worktree {}: {}".format(path, err))
+        return path
+    worktree = find_worktree(repo, path)
+    if worktree is None:
+        raise WorktreeError("{} exists but is not a worktree of {}".format(path, repo))
+    if worktree.branch:
+        raise WorktreeError("the QA worktree {} is on branch {}; it must stay detached".format(path, worktree.branch))
+    code, out, err = run_git(path, "status", "--porcelain", "--untracked-files=no")
+    if code != 0:
+        raise WorktreeError("cannot read the QA worktree {}: {}".format(path, err))
+    if out.strip():
+        raise WorktreeError("the QA worktree {} has changes to tracked files".format(path))
+    code, _, err = run_git(path, "checkout", "-q", "--detach", target)
+    if code != 0:
+        raise WorktreeError("could not move the QA worktree {} to {}: {}".format(path, target, err))
+    return path
+
+
 def find_worktree(repo, path):
     """The Worktree of the repo at this path, or None."""
     path = os.path.realpath(path)

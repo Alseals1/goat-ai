@@ -72,8 +72,11 @@ def stranded_text(item, lost, default_branch, shared=None):
                                                                     who=team.dispatcher_signature(shared))
 
 
-def advance_merged(client, items, user_id, now, dry_run=False, on_moved=None):
-    """Moves each finished issue to stage:staging, and flags stranded stacks. Returns one log line per issue."""
+def advance_merged(client, items, user_id, now, dry_run=False, on_moved=None, autopilot=False):
+    """Moves each finished issue to stage:staging, and flags stranded stacks. Returns one log line per issue.
+
+    autopilot: the repo runs on autopilot (goat/autopilot.py), so the comment says QA comes next instead of asking a
+    person to close the issue."""
     candidates = mergeable_items(items, user_id, now)
     if not candidates:
         return []
@@ -91,9 +94,10 @@ def advance_merged(client, items, user_id, now, dry_run=False, on_moved=None):
         if dry_run:
             lines.append("Would move #{} to stage:staging: its PR is merged.".format(item.id))
             continue
-        client.create_comment(item.id, "**🤖 {}** · The PR is merged: {}\n\nMoved to stage:staging. "
-                                       "Close this issue when it is done: that starts the retro and the cleanup.".format(
-                                           team.dispatcher_signature(shared), ", ".join(urls)))
+        next_step = ("Autopilot: the QA agent tests the merged branch next, then I close this issue." if autopilot else
+                     "Close this issue when it is done: that starts the retro and the cleanup.")
+        client.create_comment(item.id, "**🤖 {}** · The PR is merged: {}\n\nMoved to stage:staging. {}".format(
+            team.dispatcher_signature(shared), ", ".join(urls), next_step))
         add, remove = fb.label_changes(item, stage=fb.STAGING, clear_goat_status=True)
         client.set_labels(item.id, add=add, remove=remove)
         lines.append("Moved #{} to stage:staging: its PR is merged.".format(item.id))

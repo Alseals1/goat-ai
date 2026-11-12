@@ -49,10 +49,12 @@ import time
 from datetime import datetime, timezone
 
 from goat import discord as discord_client
-from goat import health, inbox, messenger, team, worktrees
+from goat import autopilot, health, inbox, messenger, team, worktrees
 from goat.board import DONE, STAGES, STALLED, GoatItem, label_changes, same_label
-from goat.choose import (DEFAULT_RETRO_CAP, RETRO_ROLE, STAGE_PRIORITY, choose_launches, choose_retros,
-                         is_slot_limit, retro_candidates, MAX_ATTEMPTS, stalled_items)
+from goat.board import MERGE_REVIEW as fb_MERGE_REVIEW, PLAN_REVIEW as fb_PLAN_REVIEW, STAGING as fb_STAGING, \
+    TIER_REVIEW as fb_TIER_REVIEW
+from goat.choose import (DEFAULT_RETRO_CAP, RETRO_ROLE, SLOTS_FULL as SLOTS_FULL_TEXT, STAGE_PRIORITY, choose_launches,
+                         choose_retros, is_slot_limit, retro_candidates, MAX_ATTEMPTS, stalled_items)
 from goat.cleanup import clean_up
 from goat.early_ticks import EarlyTicks, TickResult
 from goat.config import (COORDINATOR_STATE_FILE, REPO_ROOT, ConfigError, board_env_names, load_board, load_shared,
@@ -128,6 +130,10 @@ def fill_coordinator_defaults(config):
     coordinator.setdefault("autoAdvanceMerged", DEFAULT_AUTO_ADVANCE_MERGED)
     coordinator.setdefault("notifications", DEFAULT_NOTIFICATIONS)
     check_role_caps(coordinator["maxAgentsByRole"])
+    try:
+        config["autopilot"] = autopilot.settings(config)
+    except autopilot.SettingsError as error:
+        sys.exit("{}: {}".format(CONFIG_FILE, error))
     # The aggregate retro thresholds and repo (goat/retro_launch.py).
     fill_retro_defaults(coordinator, config.get("repos") or {}, CONFIG_FILE)
 
@@ -138,8 +144,9 @@ def check_role_caps(caps):
     if not isinstance(caps, dict):
         sys.exit("{} must be an object, for example {{\"implement\": 2}}.".format(where))
     for role, cap in caps.items():
-        if role not in STAGES + (RETRO_ROLE,):
-            sys.exit("{} has an unknown role \"{}\". Use intake, plan, implement, review or retro.".format(where, role))
+        if role not in STAGES + (RETRO_ROLE,) + autopilot.ROLES:
+            sys.exit("{} has an unknown role \"{}\". Use intake, plan, implement, review, retro, qa or pm.".format(
+                where, role))
         # bool is a kind of int in Python, so check for it first.
         if isinstance(cap, bool) or not isinstance(cap, int) or cap < 1:
             sys.exit("{}.{} must be a whole number of 1 or more, not {}.".format(where, role, json.dumps(cap)))
@@ -301,7 +308,8 @@ def tell_discord(webhook, config, state, candidates, user_id, boards, now, dry_r
 
     shared = load_shared()
     owner_name = team.owner(config)["name"]
-    messenger.tell_waiting(webhook, candidates, user_id, state, fetch_summary, shared, owner_name, now, dry_run, log)
+    messenger.tell_waiting(webhook, autopilot_quiet(config, candidates), user_id, state, fetch_summary, shared, owner_name,
+                           now, dry_run, log)
     if activity_on(config):
         messenger.tell_stage_moves(webhook, candidates, user_id, state, shared, owner_name, now, dry_run, log)
 
@@ -422,20 +430,36 @@ def build_inbox(config):
                        lambda: waiting_items(config), reply, save_state, shared, owner, log)
 
 
-def advance_merged_boards(boards, user_id, dry_run, webhook=None, owner_name=""):
-    """Moves the issues whose PR a person merged to stage:staging, in each repo. Logs what it did.
+def advance_merged_boards(boards, user_id, dry_run, webhook=None, owner_name="", config=None, state=None):
+    """Moves the issues whose PR was merged to stage:staging, in each repo. Logs what it did.
 
-    With a Discord webhook, Dex also says so."""
+    With a Discord webhook, Dex also says so. In an autopilot repo the issue is queued for QA (or closed at once when
+    autopilot QA is off), instead of waiting for a person to close it."""
     shared = load_shared()
+    paths = autopilot_paths(config or {})
 
-    def on_moved(item, urls):
-        say(webhook, messenger.dispatcher_message(
-            "the PR for #{} is merged. Close the issue when it's finished: that starts the retro and the cleanup.".format(
-                item.id), shared, owner_name, "#{} {}".format(item.id, item.name), item.url), "the merge message")
+    def mover(path, client):
+        repo = paths.get(path)
+
+        def on_moved(item, urls):
+            if repo is None:
+                text = "the PR for #{} is merged. Close the issue when it's finished: that starts the retro and the " \
+                       "cleanup.".format(item.id)
+            elif pilot_settings(config)["qa"]:
+                autopilot.queue_qa(state, repo, path, item)
+                text = "#{} is merged. QA tests it next, then I close it.".format(item.id)
+            else:
+                client.close_issue(item.id)
+                text = "#{} is merged, and autopilot QA is off, so I closed it.".format(item.id)
+            say(webhook, messenger.dispatcher_message(text, shared, owner_name, "#{} {}".format(item.id, item.name),
+                                                      item.url), "the merge message")
+
+        return on_moved
 
     for path, _, client, _, items in boards:
         try:
-            lines = advance_merged(client, items, user_id, datetime.now(timezone.utc), dry_run=dry_run, on_moved=on_moved)
+            lines = advance_merged(client, items, user_id, datetime.now(timezone.utc), dry_run=dry_run,
+                                   on_moved=mover(path, client), autopilot=path in paths)
         except GitHubError as error:
             lines = ["Merge check failed in {}: {}".format(path, error)]
         for line in lines:
@@ -494,6 +518,23 @@ def prepare_worktree(launch, env, fetch_errors):
     return path
 
 
+def prepare_qa_worktree(launch, env, fetch_errors):
+    """Makes or refreshes the autopilot's QA worktree (detached at the default branch) and copies the env files."""
+    repo = main_checkout(launch["repoPath"])
+    if repo not in fetch_errors:
+        try:
+            worktrees.fetch(repo)
+            fetch_errors[repo] = None
+        except worktrees.WorktreeError as error:
+            fetch_errors[repo] = error
+    if fetch_errors[repo] is not None:
+        raise fetch_errors[repo]
+    path = worktrees.prepare_qa(repo)
+    for line in worktrees.copy_env_files(repo, path, worktrees.env_file_paths(env)):
+        log("QA: {}".format(line))
+    return path
+
+
 def start_agent(launch, worktree):
     """Starts one agent in the background, in `worktree` (the item's worktree, or the main checkout for a
     retro), and returns its run record."""
@@ -514,7 +555,7 @@ def start_agent(launch, worktree):
         process = subprocess.Popen(
             command,
             cwd=worktree,
-            env=agent_env(),
+            env=dict(agent_env(), **(launch.get("env") or {})),
             stdin=subprocess.DEVNULL,
             stdout=log_file,
             stderr=subprocess.STDOUT,
@@ -530,6 +571,7 @@ def start_agent(launch, worktree):
         "startedAt": now_iso(),
         "log": log_path,
         "repoPath": launch["repoPath"],
+        "repo": launch.get("repo", ""),
         "url": launch.get("url", ""),
         "worktree": worktree,
     }
@@ -575,16 +617,21 @@ def start_launches(launches, envs, state, dry_run, announce=None):
     """
     fetch_errors = {}
     for launch in launches:
-        needs_worktree = launch["role"] not in (RETRO_ROLE, AGGREGATE_ROLE)
+        # Retros and the project manager read and write through goat.py only. QA has its own worktree.
+        needs_worktree = launch["role"] not in (RETRO_ROLE, AGGREGATE_ROLE) + autopilot.ROLES
         if dry_run:
             path = main_checkout(launch["repoPath"])
             if needs_worktree:
                 path = worktrees.worktree_path(path, launch["ref"])
+            elif launch["role"] == autopilot.QA_ROLE:
+                path = worktrees.worktree_path(path, worktrees.QA_FOLDER)
             log("Would start: /goat-{} {} on {} in {}".format(launch["role"], launch["label"], launch["model"], path))
             continue
         try:
             if needs_worktree:
                 path = prepare_worktree(launch, envs[launch["repoPath"]], fetch_errors)
+            elif launch["role"] == autopilot.QA_ROLE:
+                path = prepare_qa_worktree(launch, envs[launch["repoPath"]], fetch_errors)
             else:
                 path = main_checkout(launch["repoPath"])
         except (worktrees.WorktreeError, OSError) as error:
@@ -678,10 +725,215 @@ def escalate_stalled(candidates, user_id, boards, running_items, attempts, now, 
             team.owner(config)["name"], "#{} {}".format(item.id, item.name), item.url), "the stalled message")
 
 
+# ---------- Autopilot (goat/autopilot.py) ----------
+
+def pilot_settings(config):
+    """The autopilot settings that fill_coordinator_defaults checked, or autopilot off when there are none."""
+    return config.get("autopilot") or autopilot.settings({})
+
+
+def autopilot_paths(config):
+    """repo path -> GitHub repo, for the configured repos that run on autopilot."""
+    found = {}
+    for repo, path in (config.get("repos") or {}).items():
+        if autopilot.is_on(pilot_settings(config), repo):
+            found[os.path.expanduser(path)] = repo
+    return found
+
+
+def mark_autopilot(config, launches):
+    """Tells agents in autopilot repos that no person reads their gate (GOAT_AUTOPILOT=1, for the skills)."""
+    paths = autopilot_paths(config)
+    for launch in launches:
+        if launch["repoPath"] in paths:
+            launch.setdefault("env", {})["GOAT_AUTOPILOT"] = "1"
+            launch.setdefault("repo", paths[launch["repoPath"]])
+    return launches
+
+
+def run_autopilot(config, state, boards, user_id, now, dry_run, webhook=None):
+    """Approves gates and merges reviewed PRs in the autopilot repos. Changes the items read this turn in place, so
+    this turn's launches see the new labels."""
+    paths = autopilot_paths(config)
+    if not paths:
+        return
+    shared = load_shared()
+    owner_name = team.owner(config)["name"]
+    for path, _, client, board, items in boards:
+        if path not in paths:
+            continue
+
+        def on_merged(item, pr):
+            say(webhook, messenger.dispatcher_message(
+                "autopilot merged {} for #{} (Review passed, checks green).".format(pr["url"], item.id), shared,
+                owner_name, "#{} {}".format(item.id, item.name), item.url), "the autopilot merge message")
+
+        try:
+            lines = autopilot.approve_gates(client, items, user_id, now, autopilot.IssueStates(client, items), shared,
+                                            dry_run)
+            lines += autopilot.merge_ready(client, items, user_id, now, pilot_settings(config), shared, dry_run, on_merged)
+        except GitHubError as error:
+            lines = ["Autopilot step failed in {}: {}".format(path, error)]
+        for line in lines:
+            log("Autopilot: " + line)
+
+
+def qa_pending(state, repo):
+    """The merged issues of a repo that still wait for QA (queued or running)."""
+    return [entry for entry in autopilot.qa_queue(state).values()
+            if entry.get("repo", "").lower() == repo.lower() and entry.get("status") == "due"]
+
+
+def autopilot_launches(config, state, boards, user_id, running_items, free_slots, running_per_repo, running_per_role,
+                       now):
+    """QA runs for merged issues, and a project manager run where the pipeline has room. Returns (launches, skipped).
+
+    They get the slots the stage agents left. A PM run is skipped when the board is the same as on its last run
+    (same backlog, same work in flight): it would pick the same nothing again."""
+    settings = pilot_settings(config)
+    paths = autopilot_paths(config)
+    caps = dict(autopilot.DEFAULT_ROLE_CAPS)
+    caps.update({role: cap for role, cap in config["coordinator"]["maxAgentsByRole"].items() if role in autopilot.ROLES})
+    max_per_repo = config["coordinator"]["maxAgentsPerRepo"]
+    per_repo = dict(running_per_repo)
+    per_role = dict(running_per_role)
+    launches, skipped = [], []
+
+    def slot_reason(path, role):
+        if len(launches) >= free_slots:
+            return SLOTS_FULL_TEXT
+        if max_per_repo is not None and per_repo.get(path, 0) >= max_per_repo:
+            return "all agent slots for this repo are in use"
+        if per_role.get(role, 0) >= caps[role]:
+            return "all {} slots are in use".format(role)
+        return None
+
+    def add(launch):
+        per_repo[launch["repoPath"]] = per_repo.get(launch["repoPath"], 0) + 1
+        per_role[launch["role"]] = per_role.get(launch["role"], 0) + 1
+        launches.append(launch)
+
+    for path, _, client, board, items in boards:
+        repo = paths.get(path)
+        if repo is None:
+            continue
+        by_id = {item.id: item for item in items}
+        for entry in qa_pending(state, repo):
+            item = by_id.get(entry["item"])
+            if item is None or item.status != fb_STAGING:
+                # Closed or moved by a person: QA is no longer due.
+                entry["status"] = "dropped"
+                continue
+            if entry["item"] in running_items:
+                continue
+            reason = slot_reason(path, autopilot.QA_ROLE)
+            if reason:
+                skipped.append(("QA " + entry["label"], reason))
+                continue
+            add({"item": entry["item"], "ref": entry["item"], "label": entry["label"], "role": autopilot.QA_ROLE,
+                 "model": autopilot.MODELS[autopilot.QA_ROLE], "repoPath": path, "repo": repo, "url": entry["url"],
+                 "attemptKey": "qa:{}:{}".format(autopilot.qa_key(repo, entry["item"]), entry.get("tries", 0)),
+                 "env": {"GOAT_AUTOPILOT": "1"}})
+
+        autopilot.prune_qa(state)
+        pm_item = "pm:" + repo
+        if pm_item in running_items:
+            continue
+        flying = autopilot.in_flight(items, user_id)
+        waiting_qa = qa_pending(state, repo)
+        free = autopilot.room(settings, len(flying) + len(waiting_qa), autopilot.starts_today(state, now))
+        if free <= 0:
+            continue
+        try:
+            ready, _ = autopilot.backlog(client, items, user_id)
+        except GitHubError as error:
+            log("Autopilot: could not read the backlog of {}: {}".format(repo, error))
+            continue
+        if not ready:
+            continue
+        key = "pm:{}:{}|{}|{}".format(repo, ",".join(item.id for item in ready),
+                                      ",".join(sorted(item.id for item in flying)), free)
+        if state["attempts"].get(key):
+            continue
+        reason = slot_reason(path, autopilot.PM_ROLE)
+        if reason:
+            skipped.append(("project manager for " + repo, reason))
+            continue
+        add({"item": pm_item, "ref": "", "label": "Project manager ({})".format(repo), "role": autopilot.PM_ROLE,
+             "model": autopilot.MODELS[autopilot.PM_ROLE], "repoPath": path, "repo": repo,
+             "url": "https://github.com/{}/issues".format(repo), "attemptKey": key, "env": {"GOAT_AUTOPILOT": "1"}})
+    return launches, skipped
+
+
+def finish_autopilot_runs(config, state, finished, dry_run, webhook=None):
+    """Acts on QA and project manager runs that ended: closes the issue QA tested, starts the PM's picks.
+    Returns True when an issue was started, so the caller runs a turn at once."""
+    if dry_run:
+        return False
+    started_any = False
+    shared = load_shared()
+    owner_name = team.owner(config)["name"]
+    for run in finished:
+        role, repo = run.get("role"), run.get("repo") or ""
+        if role not in autopilot.ROLES or not repo:
+            continue
+        client = GitHubClient(repo)
+        try:
+            if role == autopilot.QA_ROLE:
+                entry = autopilot.qa_queue(state).get(autopilot.qa_key(repo, run["item"]))
+                if entry is None:
+                    continue
+                line, closed = autopilot.finish_qa(client, entry, run, shared)
+                log("Autopilot: " + line)
+                if closed:
+                    say(webhook, messenger.dispatcher_message(
+                        "QA ran on #{} after the merge, so I closed it. Anything QA found is in the backlog.".format(
+                            run["item"]), shared, owner_name, run.get("label"), run.get("url")), "the QA message")
+                elif entry.get("status") == "failed":
+                    say(webhook, messenger.dispatcher_message(
+                        "QA could not finish on #{} after {} tries. It is still open: close it when it is done.".format(
+                            run["item"], autopilot.MAX_QA_TRIES), shared, owner_name, run.get("label"), run.get("url")),
+                        "the QA message")
+            else:
+                user_id = client.me()["id"]
+                items = [GoatItem.from_github(raw) for raw in client.board_items()]
+
+                def on_started(item, why):
+                    say(webhook, messenger.dispatcher_message(
+                        "{} started #{}: {}".format(team.signature(shared, autopilot.PM_ROLE), item.id,
+                                                   why or "next in the plan"), shared, owner_name,
+                        "#{} {}".format(item.id, item.name), item.url), "the start message")
+
+                lines, started = autopilot.apply_picks(client, repo, items, user_id, pilot_settings(config), state, shared,
+                                                       datetime.now(timezone.utc), on_started=on_started)
+                for line in lines:
+                    log("Autopilot: " + line)
+                started_any = started_any or started > 0
+        except GitHubError as error:
+            log("Autopilot: could not finish the {} run of {}: {}".format(role, run.get("label"), error))
+    autopilot.prune_qa(state)
+    return started_any
+
+
+def autopilot_quiet(config, candidates):
+    """The candidates without autopilot gates that need nobody: Discord does not announce those as waiting."""
+    paths = autopilot_paths(config)
+
+    def quiet(path, item):
+        if path not in paths:
+            return False
+        if same_label(item.goat_status, fb_TIER_REVIEW) or same_label(item.goat_status, fb_PLAN_REVIEW):
+            return True
+        return same_label(item.goat_status, fb_MERGE_REVIEW) and not autopilot.is_held(item)
+
+    return [(path, item) for path, item in candidates if not quiet(path, item)]
+
+
 def tick(config, state, dry_run):
     """Runs one full turn. Returns a TickResult for the early-turn logic."""
     webhook = None if dry_run else discord_webhook(config)
-    prune_finished(state, activity_announcers(config, webhook)[1])
+    finished = prune_finished(state, activity_announcers(config, webhook)[1])
+    finish_autopilot_runs(config, state, finished, dry_run, webhook)
     repos = check_repos(config)
     candidates, user_id, boards, github_failed = read_boards(repos)
     if candidates is None:
@@ -689,14 +941,16 @@ def tick(config, state, dry_run):
         return TickResult(slot_skipped=False, github_failed=github_failed)
     running_items = {run["item"] for run in state["runs"]}
     now = datetime.now(timezone.utc)
+    run_autopilot(config, state, boards, user_id, now, dry_run, webhook)
     if config["coordinator"].get("autoAdvanceMerged", DEFAULT_AUTO_ADVANCE_MERGED):
-        advance_merged_boards(boards, user_id, dry_run, webhook, team.owner(config)["name"])
+        advance_merged_boards(boards, user_id, dry_run, webhook, team.owner(config)["name"], config, state)
     retro_items = retro_items_of(boards, user_id, now)
     retro_wait_ids, retro_failed_ids = retro_cleanup_ids(retro_items, state["attempts"])
     clean_up_boards(boards, user_id, running_items, dry_run, retro_wait_ids, retro_failed_ids)
     escalate_stalled(candidates, user_id, boards, running_items, state["attempts"], now, config, dry_run, webhook)
     tell_discord(webhook, config, state, candidates, user_id, boards, now, dry_run)
     free_slots, running_per_repo, running_per_role = slot_counts(config, state)
+    # The pipeline's own agents (stage, QA, PM) in autopilot repos know no person reads their gate.
     max_per_repo = config["coordinator"]["maxAgentsPerRepo"]
     max_per_role = config["coordinator"]["maxAgentsByRole"]
 
@@ -705,9 +959,21 @@ def tick(config, state, dry_run):
         running_per_repo=running_per_repo, max_per_repo=max_per_repo,
         running_per_role=running_per_role, max_per_role=max_per_role,
     )
-    # Retros get the slots that the stage agents left. Count this turn's stage launches as running.
+    mark_autopilot(config, launches)
+    # Count this turn's stage launches as running for what comes next.
     for launch in launches:
         running_per_repo[launch["repoPath"]] = running_per_repo.get(launch["repoPath"], 0) + 1
+        running_per_role[launch["role"]] = running_per_role.get(launch["role"], 0) + 1
+    # Autopilot QA and project manager runs get the slots the stage agents left.
+    pilot_launches, pilot_skipped = autopilot_launches(
+        config, state, boards, user_id, running_items, free_slots - len(launches), running_per_repo, running_per_role,
+        now)
+    launches += pilot_launches
+    skipped += pilot_skipped
+    for launch in pilot_launches:
+        running_per_repo[launch["repoPath"]] = running_per_repo.get(launch["repoPath"], 0) + 1
+        running_per_role[launch["role"]] = running_per_role.get(launch["role"], 0) + 1
+    # Retros get the slots that are left.
     retro_launches, retro_skipped, retros_waiting = choose_retros(
         retro_items, has_retro_note, running_items, state["attempts"], free_slots - len(launches),
         running_per_repo=running_per_repo, max_per_repo=max_per_repo,
@@ -766,6 +1032,7 @@ def follow_up(config, state, run, dry_run):
     )
     for item_label, reason in skipped:
         log("Not starting {}: {}".format(item_label, reason))
+    mark_autopilot(config, launches)
     webhook = None if dry_run else discord_webhook(config)
     start_launches(launches, {repo_path: env}, state, dry_run, activity_announcers(config, webhook)[0])
     return any(is_slot_limit(reason) for _, reason in skipped)
@@ -789,7 +1056,13 @@ def start_follow_ups(config, state, dry_run, early):
     single-item follow-ups, so a waiting item with a higher priority gets the slot first. Otherwise it
     starts a follow-up for each ended run.
     """
-    finished = prune_finished(state, activity_announcers(config, None if dry_run else discord_webhook(config))[1])
+    webhook = None if dry_run else discord_webhook(config)
+    finished = prune_finished(state, activity_announcers(config, webhook)[1])
+    if finish_autopilot_runs(config, state, finished, dry_run, webhook):
+        # The project manager started new work: a full turn starts its agents and the other follow-ups at once.
+        log("Turn triggered by the autopilot: new work started.")
+        early.after_tick(run_one_tick(config, state, dry_run))
+        return
     if finished:
         early.run_ended()
     if early.waiting_for_slot:
@@ -883,6 +1156,8 @@ def command_run(args):
         len(config["repos"]), limits_text(config["coordinator"]), interval, count_text,
         " (dry run)" if args.dry_run else ""))
     log(aggregate_text(config["coordinator"]))
+    if autopilot.text_line(pilot_settings(config)):
+        log(autopilot.text_line(pilot_settings(config)))
     global current_beat, current_inbox
     previous_handler = None
     if not args.dry_run:

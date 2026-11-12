@@ -18,6 +18,8 @@ This repo is the **factory**. The app it builds lives in a **separate repo** (se
 | `skills/goat-board/` | Board status skill, and `protocol.md`: the rules every role skill follows |
 | `skills/goat-intake/`, `goat-plan/`, `goat-implement/`, `goat-review/` | The four role skills |
 | `skills/goat-qa/` | The QA skill: runs the app on local services in a browser and files bugs and UX or UI recommendations as backlog issues. See [QA](#qa) |
+| `skills/goat-pm/` | The project manager skill (autopilot): picks which backlog issues start next. See [Autopilot](#autopilot) |
+| `goat/autopilot.py` | Autopilot: gate approvals, merges, QA after merge, and starting the PM's picks |
 | `skills/goat-retro/`, `goat-retro-aggregate/` | The retro skills: one reviews a closed issue and saves a local note; the aggregate finds patterns across notes and adds improvement issues. See [Retros](#retros) |
 | `scripts/install.sh` | Links the skills and the CLI, and creates the local config with default agent limits |
 | `docs/` | The design |
@@ -94,6 +96,7 @@ Every role has a first name, so a thread on an issue reads like a small team wor
 | Review | **Priya** | Sharp and fair; credits good work, then states what must change |
 | Retro | **Sam** | Reflective and honest; what to repeat, what to change, no blame |
 | QA | **Quinn** | Hands-on and skeptical; says what a first-time user would see and where they get stuck |
+| Project manager (autopilot) | **Morgan** | Organised and steady; says what starts next and why |
 | Dispatcher (the coordinator) | **Dex** | Keeps things moving; short pings that say what needs a person |
 
 You will see them in every comment header (for example `🤖 Priya · Review agent · handoff · G.O.A.T. 0.1.0`), in the comments the coordinator writes (Dex signs merges, stalled issues and stranded stacks), and in desktop notifications.
@@ -219,7 +222,7 @@ The coordinator starts it when at least 15 notes wait **and** at least 3 days pa
 
 ## QA
 
-The QA agent (`/goat-qa`, on Sonnet) uses the app the way a first-time user would. It is not a stage agent: the coordinator never starts it, it never claims an issue, and it never blocks a merge. Run it in the project repo's main checkout when you want the app exercised, for example after a batch of PRs merged:
+The QA agent (`/goat-qa`, on Sonnet) uses the app the way a first-time user would. It is not a stage agent: it never claims an issue and never blocks a merge. The coordinator starts it only in an [autopilot](#autopilot) repo, after each merge. Run it in the project repo's main checkout when you want the app exercised, for example after a batch of PRs merged:
 
 ```sh
 /goat-qa            # sweep the main flows on the current default branch
@@ -234,6 +237,29 @@ What it does:
 5. Saves one report with screenshots in `~/.goat-ai/qa/<repo>/<date>/report.md`, including what only a real device can check.
 
 It tests the web build, so it cannot judge haptics, native gestures or performance on a phone: the report lists those under "Needs a device pass". It runs only on local services with sample data, and never changes the project's files. The rules are in protocol section 16.
+
+## Autopilot
+
+A repo can run with no person at the gates. Turn it on per repo in `~/.goat-ai/config.json`:
+
+```json
+"autopilot": {
+  "repos": ["me/game"],
+  "inFlight": 2,
+  "maxStartsPerDay": 10,
+  "mergeMethod": "squash",
+  "qa": true
+}
+```
+
+For those repos the coordinator does, on every turn:
+
+1. **Approves the size gate** at once, and **the plan gate** once every issue on the issue's `Depends on:` line is closed.
+2. **Merges** the PR of an issue the Review agent passed (`goat:merge-review`), once it is not a draft, GitHub says it merges cleanly and no check is failing or pending. One PR uses `mergeMethod`; a stack is merged one part per turn, bottom first, with merge commits, each part re-targeted to the default branch once the part below is in. A failing check or a conflict sends the issue back to Implement with a comment, at most twice. After that, or for anything it cannot judge (a draft, a refused merge, an odd base branch), it **holds**: it comments, @mentions you and leaves the merge to you.
+3. **Runs QA** (Quinn) on the merged default branch, in its own worktree `<repo folder>-goat/qa`, then copies QA's summary onto the issue and **closes it**, which starts the retro and the cleanup. QA files at most 3 findings per run, high or medium only. With `"qa": false` the issue is closed right after the merge.
+4. **Starts the next work.** While fewer than `inFlight` issues are moving (an issue waiting for you does not count; one waiting for QA does), it starts the **project manager** (Morgan, `/goat-pm`). The PM reads `goat.py backlog`, picks issues whose dependencies are closed, in priority and roadmap order, avoiding clashes with work in flight, and records them with `goat.py pick`. When it ends, the coordinator checks each pick again and starts it (assigned to you, `stage:intake`, `goat:ready`). QA's findings are picked like any other backlog issue. At most `maxStartsPerDay` issues start in a day.
+
+What stays with you: answering questions (`goat:answer-question`), chats, stalled issues, holds, and promoting the default branch to production. **The autopilot never merges into `main` or `master`**, so point the repo's default branch at an integration branch such as `dev`. Agents still never merge or change a gate label: the coordinator does it in code, as you, and the deny rules are unchanged. Every action leaves a short comment on the issue and, with Discord set up, a message from Dex. The design is in [docs/design.md](docs/design.md#autopilot), the agents' rules in protocol section 17.
 
 ## Add an issue
 
@@ -250,7 +276,7 @@ python3 ~/.goat-ai/goat.py add "Fix the login redirect" --priority next --milest
 
 ## Run the coordinator
 
-The coordinator starts the agents for you: every 15 minutes it reads each project's issues and starts the right agent for each of your ready issues, up to 3 at a time. When one of its agents ends, it reads only that issue and starts the next agent at once (for example Review right after Implement opens the PR), until the issue stops at a gate or a question. It also moves an issue to `stage:staging` when you merge its PR. It runs from any folder: it reads the config and each repo's own `.env`, not the current folder's. You still answer questions, approve gates, and merge.
+The coordinator starts the agents for you: every 15 minutes it reads each project's issues and starts the right agent for each of your ready issues, up to 3 at a time. When one of its agents ends, it reads only that issue and starts the next agent at once (for example Review right after Implement opens the PR), until the issue stops at a gate or a question. It also moves an issue to `stage:staging` when you merge its PR. It runs from any folder: it reads the config and each repo's own `.env`, not the current folder's. You still answer questions, approve gates, and merge, unless the repo runs on [autopilot](#autopilot).
 
 1. Add your local checkouts to `~/.goat-ai/config.json`, one per project repo. One coordinator runs all of them:
 
@@ -274,7 +300,7 @@ The coordinator starts the agents for you: every 15 minutes it reads each projec
    - The `repos` keys are labels for you. The GitHub repo of each checkout comes from its `.env` or its `origin` remote. All repos use your one `gh` login.
    - Do not set `GOAT_GITHUB_*` variables in the shell that runs the coordinator. They would win over every project's `.env`, so the coordinator stops with a message.
    - `maxAgents` limits agents across all repos. `maxAgentsPerRepo` is optional (no limit when it is not set). Set it to 1 when a repo's agents would share local services, such as a database or a dev server port.
-   - `maxAgentsByRole` is optional: the most agents at once in one role, so long Implement runs cannot take every slot. The caps are ceilings in the shared `maxAgents` pool, not reserved slots. `retro` defaults to 1 and only gets the slots that stage agents leave free.
+   - `maxAgentsByRole` is optional: the most agents at once in one role, so long Implement runs cannot take every slot. The caps are ceilings in the shared `maxAgents` pool, not reserved slots. `retro` defaults to 1 and only gets the slots that stage agents leave free. The autopilot roles `qa` and `pm` default to 1 each.
    - `notifications` (default `true`): a desktop notification (macOS or Linux) when an issue stalls. Set it to `false` to turn them off. The comment on the issue is posted either way.
    - `autoAdvanceMerged` (default `true`): when a person merges a PR, the coordinator moves its issue from `goat:merge-review` to `stage:staging`. Set it to `false` to do that by hand.
    - When issues wait for a slot and an agent ends, the coordinator runs a full early turn, so the waiting issues start in priority order. Early turns run at most once a minute. After a GitHub error, an early turn tries again after 120, 240, then 480 seconds.
