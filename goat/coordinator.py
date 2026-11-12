@@ -41,6 +41,7 @@ While it waits between turns, press r to run a turn now.
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -540,7 +541,10 @@ def start_agent(launch, worktree):
     retro), and returns its run record."""
     os.makedirs(LOG_DIR, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    log_path = os.path.join(LOG_DIR, "{}-{}-{}.json".format(stamp, launch["item"], launch["role"]))
+    # The item is a file name part: an issue number, or a name like "pm-owner__repo". Anything else is replaced, so a
+    # "/" can never point into a missing folder.
+    safe_item = re.sub(r"[^A-Za-z0-9_.-]", "_", str(launch["item"]))
+    log_path = os.path.join(LOG_DIR, "{}-{}-{}.json".format(stamp, safe_item, launch["role"]))
     command = [
         # The aggregate retro has no item, so its ref is empty and the command has no argument.
         "claude", "-p", "/goat-{} {}".format(launch["role"], launch["ref"]).strip(),
@@ -778,6 +782,11 @@ def run_autopilot(config, state, boards, user_id, now, dry_run, webhook=None):
             log("Autopilot: " + line)
 
 
+def pm_run_item(repo):
+    """The run record's item for a repo's project manager run. It is also part of the log file name, so no "/"."""
+    return "pm-" + repo.replace("/", "__")
+
+
 def qa_pending(state, repo):
     """The merged issues of a repo that still wait for QA (queued or running)."""
     return [entry for entry in autopilot.qa_queue(state).values()
@@ -836,7 +845,7 @@ def autopilot_launches(config, state, boards, user_id, running_items, free_slots
                  "env": {"GOAT_AUTOPILOT": "1"}})
 
         autopilot.prune_qa(state)
-        pm_item = "pm:" + repo
+        pm_item = pm_run_item(repo)
         if pm_item in running_items:
             continue
         flying = autopilot.in_flight(items, user_id)
