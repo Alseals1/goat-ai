@@ -54,7 +54,7 @@ class LaunchTests(unittest.TestCase):
         launches, _ = self.launches(cfg=config(inFlight=3))
         self.assertEqual([launch["role"] for launch in launches], ["qa", "pm"])
         pm = launches[1]
-        self.assertEqual((pm["item"], pm["ref"], pm["model"], pm["repo"]), ("pm:" + REPO, "", "opus", REPO))
+        self.assertEqual((pm["item"], pm["ref"], pm["model"], pm["repo"]), (coordinator.pm_run_item(REPO), "", "opus", REPO))
 
     def test_no_pm_on_the_same_board_twice(self):
         launches, _ = self.launches()
@@ -63,7 +63,7 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(self.launches()[0], [])
 
     def test_no_pm_while_one_runs_when_the_day_is_used_up_or_nothing_is_ready(self):
-        self.assertEqual(self.launches(running_items={"pm:" + REPO})[0], [])
+        self.assertEqual(self.launches(running_items={coordinator.pm_run_item(REPO)})[0], [])
         self.state["autopilot"] = {"starts": {"2026-11-12": 10}}
         self.assertEqual(self.launches()[0], [])
         self.state["autopilot"] = {}
@@ -90,6 +90,29 @@ class LaunchTests(unittest.TestCase):
         cfg = config()
         cfg["autopilot"]["repos"] = []
         self.assertEqual(self.launches(cfg=cfg), ([], []))
+
+
+class LogPathTests(unittest.TestCase):
+    def test_the_pm_log_lands_in_the_log_folder(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        launch = {"item": coordinator.pm_run_item("me/app"), "label": "PM", "role": "pm", "model": "opus",
+                  "ref": "", "repoPath": PATH}
+        with mock.patch.object(coordinator, "LOG_DIR", folder), \
+                mock.patch.object(coordinator.subprocess, "Popen", return_value=mock.Mock(pid=4242)):
+            run = coordinator.start_agent(launch, folder)
+        self.assertEqual(os.path.dirname(run["log"]), folder)
+        self.assertTrue(run["log"].endswith("-pm-me__app-pm.json"))
+        self.assertTrue(os.path.exists(run["log"]))
+
+    def test_a_slash_in_any_item_is_replaced(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        launch = {"item": "pm:me/app", "label": "PM", "role": "pm", "model": "opus", "ref": "", "repoPath": PATH}
+        with mock.patch.object(coordinator, "LOG_DIR", folder), \
+                mock.patch.object(coordinator.subprocess, "Popen", return_value=mock.Mock(pid=4243)):
+            run = coordinator.start_agent(launch, folder)
+        self.assertEqual(os.path.dirname(run["log"]), folder)
 
 
 class MarkAndQuietTests(unittest.TestCase):
@@ -138,7 +161,7 @@ class FinishTests(unittest.TestCase):
 
     def test_pm_run_starts_its_picks(self):
         autopilot.save_pick(REPO, 41, "next in M2", NOW, self.folder)
-        run = {"role": "pm", "item": "pm:" + REPO, "repo": REPO, "log": "", "label": "PM", "url": ""}
+        run = {"role": "pm", "item": coordinator.pm_run_item(REPO), "repo": REPO, "log": "", "label": "PM", "url": ""}
         self.assertTrue(coordinator.finish_autopilot_runs(config(), self.state, [run], dry_run=False))
         self.assertEqual(self.client.labels_of(41), ["goat:ready", "stage:intake"])
 
