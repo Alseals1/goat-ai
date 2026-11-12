@@ -37,6 +37,8 @@ Refer to an issue by number: `14`, `#14`, or its link.
 
 After review a person merges the PR, the coordinator moves the issue to `stage:staging`, and a person closes the issue once it is finished.
 
+**Autopilot.** In a repo that runs on autopilot (`GOAT_AUTOPILOT=1` in your environment), the coordinator does those steps itself: it approves `tier-review`, approves `plan-review` once the "Depends on" issues are closed, merges at `merge-review` once the checks are green, runs the QA agent on the merged branch, closes the issue, and starts the project manager agent to pick the next work. Questions, chats and stalls still go to a person. Agents still never merge or change a gate label. See section 17 of the protocol.
+
 ## Statuses
 
 | Status | Meaning | Who moves it on |
@@ -92,6 +94,15 @@ Every command has `--help` with an example.
 | `release <item> --stage <stage> --goat-status <status> --file -` | Posts the handoff and gives the issue up |
 
 Only the goat-intake, goat-plan, goat-implement and goat-review skills run these, following `skills/goat-board/protocol.md`. Any other agent must not.
+
+**Project manager agent only (autopilot):**
+
+| Command | What it does |
+| --- | --- |
+| `backlog [--json]` | Shows the work in flight, the free slots, and the backlog issues that can start now or are blocked (and why) |
+| `pick <item> --why "<reason>"` | Records one backlog issue for the autopilot to start. Writes a local file only; the coordinator checks the pick again and starts it |
+
+Only goat-pm runs `pick`. Any agent may read `backlog`.
 
 **Retro agents only:**
 

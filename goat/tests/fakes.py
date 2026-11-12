@@ -74,6 +74,12 @@ class FakeClient:
         # Merge commits that are part of the default branch (for PRs that were merged into another branch).
         self.commits_on_default = set()
         self.created = []
+        # Autopilot: PR number -> pr_status() dict, and what was merged, re-targeted and closed.
+        self.pr_statuses = {}
+        self.merged = []
+        self.retargeted = []
+        self.closed = []
+        self.merge_error = None
 
     # ---------- reads ----------
 
@@ -106,6 +112,24 @@ class FakeClient:
     def default_branch(self):
         return self.default
 
+    def backlog_items(self):
+        found = []
+        for item in self.items.values():
+            if item["state"] == "open" and fb.stage_label(fb.DISCOVERY) in item["labels"]:
+                entry = copy.deepcopy(item)
+                entry.pop("comments", None)
+                found.append(entry)
+        return found
+
+    def issue_state(self, number):
+        try:
+            return self.items[int(number)]["state"]
+        except KeyError:
+            raise ItemNotFound("GitHub: not found (#{})".format(number))
+
+    def pr_status(self, number):
+        return copy.deepcopy(self.pr_statuses[int(number)])
+
     def commit_on_branch(self, commit, branch):
         return commit in self.commits_on_default
 
@@ -129,6 +153,25 @@ class FakeClient:
             if name not in item["labels"]:
                 item["labels"].append(name)
         self._wrote("labels", int(number), {"add": list(add), "remove": list(remove)})
+
+    def merge_pr(self, number, method):
+        if self.merge_error:
+            raise GitHubError(self.merge_error)
+        self.merged.append((int(number), method))
+        self.open_prs = [pr for pr in self.open_prs if pr["number"] != int(number)]
+        self._wrote("merge", int(number), method)
+
+    def set_pr_base(self, number, base):
+        self.retargeted.append((int(number), base))
+        for pr in self.open_prs:
+            if pr["number"] == int(number):
+                pr["base"] = base
+        self._wrote("retarget", int(number), base)
+
+    def close_issue(self, number):
+        self.items[int(number)]["state"] = "closed"
+        self.closed.append(int(number))
+        self._wrote("close", int(number), None)
 
     def add_assignees(self, number, logins):
         item = self.items[int(number)]

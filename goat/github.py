@@ -170,6 +170,41 @@ class GitHubClient:
                  "merge_commit": (pr.get("mergeCommit") or {}).get("oid"), "mergedAt": pr.get("mergedAt")}
                 for pr in json.loads(out or "[]")]
 
+    def backlog_items(self):
+        """Open issues labelled stage:discovery, with their bodies: the backlog the autopilot's project manager picks
+        from (goat/autopilot.py). Same raw item shape as board_items, without comments."""
+        out = self.gh(["issue", "list", "--repo", self.repo, "--state", "open", "--label", "stage:discovery",
+                       "--limit", str(LIST_LIMIT),
+                       "--json", "number,title,url,updatedAt,state,labels,assignees,milestone,body"])
+        return [{
+            "repo": self.repo,
+            "number": entry["number"],
+            "title": entry["title"],
+            "url": entry["url"],
+            "updated_at": entry["updatedAt"],
+            "state": entry["state"].lower(),
+            "labels": label_names(entry["labels"]),
+            "assignees": [a["login"] for a in entry["assignees"]],
+            "milestone": (entry.get("milestone") or {}).get("title"),
+            "body": entry.get("body") or "",
+        } for entry in json.loads(out or "[]")]
+
+    def issue_state(self, number):
+        """"open" or "closed" for an issue (or a PR) of this repo. Raises ItemNotFound when it does not exist."""
+        out = self.gh(["issue", "view", str(int(number)), "--repo", self.repo, "--json", "state", "--jq", ".state"])
+        return out.strip().lower()
+
+    def pr_status(self, number):
+        """What the autopilot needs before it merges a PR: {"number", "url", "state", "draft", "mergeable", "base",
+        "branch", "checks"}. mergeable is MERGEABLE, CONFLICTING or UNKNOWN. checks is the raw statusCheckRollup list."""
+        out = self.gh(["pr", "view", str(int(number)), "--repo", self.repo, "--json",
+                       "number,url,state,isDraft,mergeable,baseRefName,headRefName,statusCheckRollup"])
+        data = json.loads(out or "{}")
+        return {"number": data.get("number"), "url": data.get("url"), "state": (data.get("state") or "").upper(),
+                "draft": bool(data.get("isDraft")), "mergeable": (data.get("mergeable") or "UNKNOWN").upper(),
+                "base": data.get("baseRefName"), "branch": data.get("headRefName"),
+                "checks": data.get("statusCheckRollup") or []}
+
     def default_branch(self):
         """The repo's default branch name, for example "main"."""
         out = self.gh(["repo", "view", self.repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"])
@@ -194,6 +229,21 @@ class GitHubClient:
             args += ["--remove-label", ",".join(remove)]
         if add or remove:
             self.gh(args)
+
+    def merge_pr(self, number, method):
+        """Merges a PR with "squash", "merge" or "rebase". Only the autopilot calls this (goat/autopilot.py), never an
+        agent. The head branch is kept: `goat.py cleanup` removes it once the issue is closed."""
+        if method not in ("squash", "merge", "rebase"):
+            raise GitHubError("Unknown merge method {!r}.".format(method))
+        self.gh(["pr", "merge", str(int(number)), "--repo", self.repo, "--" + method])
+
+    def set_pr_base(self, number, base):
+        """Points a PR at another base branch: a stack part whose part below was merged moves to the default branch."""
+        self.gh(["pr", "edit", str(int(number)), "--repo", self.repo, "--base", base])
+
+    def close_issue(self, number):
+        """Closes an issue as completed. The autopilot does this after QA, which starts the retro and the cleanup."""
+        self.gh(["issue", "close", str(int(number)), "--repo", self.repo, "--reason", "completed"])
 
     def add_assignees(self, number, logins):
         """Adds assignees (GitHub logins). Adding someone who is already assigned is not an error."""

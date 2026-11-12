@@ -21,7 +21,7 @@ import os
 import sys
 
 from goat import board as fb
-from goat import chat, coordinator, exit_codes, health, retro_facts, retros, setup, team, views, views_json
+from goat import autopilot, chat, coordinator, exit_codes, health, retro_facts, retros, setup, team, views, views_json
 from goat.actions import POST_KINDS, Goat, GoatError, refuse_ready_when_headless, utc_now
 from goat.cleanup import clean_up
 from goat.config import REPO_ROOT, ConfigError, load_board, load_shared, main_checkout, project_env
@@ -361,6 +361,96 @@ def command_release(args):
     print(json.dumps(run, indent=2))
 
 
+# ---------- Autopilot: the project manager's backlog and picks ----------
+
+def local_autopilot():
+    """The autopilot settings from ~/.goat-ai/config.json. Off when the file is missing or the section is not usable."""
+    try:
+        with open(coordinator.CONFIG_FILE) as f:
+            config = json.load(f)
+        return autopilot.settings(config)
+    except (OSError, ValueError):
+        return autopilot.settings({})
+
+
+def pipeline_view(goat):
+    """What `backlog` shows and `pick` checks against: a dict with the repo, whether it runs on autopilot, the free
+    slots, the picks so far, the work in flight, and the backlog issues that can start (ready) or not (blocked)."""
+    repo = goat.board["repo"]
+    user_id = goat.user["id"]
+    settings = local_autopilot()
+    items = views.all_items(goat.client, goat.board)
+    ready, blocked = autopilot.backlog(goat.client, items, user_id)
+    flying = autopilot.in_flight(items, user_id)
+    state = coordinator.load_state()
+    waiting_qa = coordinator.qa_pending(state, repo)
+    picked = autopilot.read_picks(repo)
+    on = autopilot.is_on(settings, repo)
+    free = autopilot.room(settings, len(flying) + len(waiting_qa), autopilot.starts_today(state, utc_now())) if on else 0
+    return {
+        "repo": repo,
+        "autopilot": on,
+        "slots": max(0, free - len(picked)),
+        "picked": picked,
+        "inFlight": [{"number": int(item.id), "title": item.name, "stage": item.status, "status": item.goat_status,
+                      "size": item.size, "url": item.url} for item in flying],
+        "waitingForQa": [int(entry["item"]) for entry in waiting_qa],
+        "ready": [{"number": int(item.id), "title": item.name, "priority": item.priority, "milestone": item.milestone,
+                   "dependsOn": [int(n) for n in autopilot.dependencies(item.body)], "url": item.url} for item in ready],
+        "blocked": [{"number": int(item.id), "title": item.name, "priority": item.priority, "reason": reason}
+                    for item, reason in blocked],
+    }
+
+
+def command_backlog(args):
+    view = pipeline_view(make_goat(args))
+    if args.json:
+        print_json(view)
+        return
+    print("{}: autopilot {}. Free slots: {}.".format(view["repo"], "on" if view["autopilot"] else "off", view["slots"]))
+    print("\nIn flight:")
+    for entry in view["inFlight"]:
+        print("- #{number} {title} (stage:{stage}, goat:{status})".format(**entry))
+    for number in view["waitingForQa"]:
+        print("- #{} merged, waiting for QA".format(number))
+    if not view["inFlight"] and not view["waitingForQa"]:
+        print("- none")
+    print("\nPicked, waiting for the coordinator:")
+    for pick in view["picked"]:
+        print("- #{}: {}".format(pick["item"], pick.get("why") or ""))
+    if not view["picked"]:
+        print("- none")
+    print("\nReady to start (dependencies closed):")
+    for entry in view["ready"]:
+        print("- #{number} {title} (prio:{priority}, milestone: {milestone})".format(
+            **dict(entry, priority=entry["priority"] or "none", milestone=entry["milestone"] or "none")))
+    if not view["ready"]:
+        print("- none")
+    print("\nNot ready:")
+    for entry in view["blocked"]:
+        print("- #{number} {title}: {reason}".format(**entry))
+    if not view["blocked"]:
+        print("- none")
+
+
+def command_pick(args):
+    """Records one project manager pick in a local file. The coordinator checks it again and starts it."""
+    goat = make_goat(args)
+    view = pipeline_view(goat)
+    if not view["autopilot"]:
+        raise GoatError("{} does not run on autopilot, so nothing is started from picks. A person starts work.".format(
+            view["repo"]))
+    number = int(goat.resolve_item_id(args.item))
+    if number not in [entry["number"] for entry in view["ready"]]:
+        reason = next((entry["reason"] for entry in view["blocked"] if entry["number"] == number),
+                      "it is not an open backlog issue (stage:discovery)")
+        raise GoatError("#{} cannot be started: {}.".format(number, reason))
+    if number not in [int(pick["item"]) for pick in view["picked"]] and view["slots"] <= 0:
+        raise GoatError("No free slot: the pipeline is full or today's limit is reached. Pick nothing more.")
+    count = autopilot.save_pick(view["repo"], number, args.why, utc_now())
+    print("Picked #{} ({} pick(s) so far). The coordinator starts it when this run ends.".format(number, count))
+
+
 def heredoc(command):
     """An example that sends Markdown on stdin, as the role skills do."""
     return "{} {} --file - <<'EOF'\n  ...\n  EOF".format(GOAT, command)
@@ -406,6 +496,14 @@ def build_parser():
     add_item.add_argument("--ready", action="store_true",
                           help="stage:intake, goat:ready, assigned to you: the coordinator starts it. "
                                "Not for agents.")
+
+    backlog_command = add("backlog", command_backlog,
+                          "the work in flight, free slots, and the backlog issues that can start (autopilot)",
+                          GOAT + " backlog --json", item=False)
+    backlog_command.add_argument("--json", action="store_true", help=json_help)
+    add("pick", command_pick, "project manager only: choose a backlog issue for the autopilot to start",
+        GOAT + " pick 38 --why 'Next in M2; no overlap with #39'").add_argument(
+        "--why", required=True, help="one line: why this issue, and why now")
 
     add("claim", command_claim, "claim an item for a role", GOAT + " claim 14 --role plan",
         session=True).add_argument("--role", required=True, choices=("intake", "plan", "implement", "review"))
@@ -472,14 +570,14 @@ def build_parser():
 
     team_command = add("team", command_team, "show the team: each agent's first name and voice, and the owner",
                        GOAT + " team --role plan", item=False)
-    team_command.add_argument("--role", choices=("intake", "plan", "implement", "review", "retro", "qa", "dispatcher"),
+    team_command.add_argument("--role", choices=("intake", "plan", "implement", "review", "retro", "qa", "pm", "dispatcher"),
                               help="show one role only")
     team_command.add_argument("--json", action="store_true", help=json_help)
     discord_test = add("discord-test", command_discord_test,
                        "send one test message to your Discord channel, signed by a teammate (default: Dex)",
                        GOAT + " discord-test --as plan", item=False)
     discord_test.add_argument("--as", dest="role", default=team.DISPATCHER,
-                              choices=("intake", "plan", "implement", "review", "retro", "qa", "dispatcher"),
+                              choices=("intake", "plan", "implement", "review", "retro", "qa", "pm", "dispatcher"),
                               help="which teammate signs it (default: dispatcher)")
     add("discord-check", command_discord_check,
         "check the Discord reply setup (token, #approvals, Message Content Intent). Sends nothing",

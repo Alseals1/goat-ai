@@ -10,7 +10,7 @@ python3 ~/.goat-ai/goat.py <command> ...
 
 Always spell out that full path and run it inside the project repo (the main checkout or the issue's worktree). Do not use `gh api`, `gh issue`, `gh label`, `curl` against GitHub, or any GitHub MCP tool: `goat.py` does what you need. The reasoning behind the design is in `docs/design.md`.
 
-**Section map** (skills refer to these numbers): 1 Set up · 2 Reading an issue · 3 Claim · 4 Pick up context · 5 Posts · 6 Checkpoints and renewal · 7 Questions and live chat · 8 Release · 9 Gates · 10 Models and subagents · 11 Safety rules · 12 Run records · 13 Headless runs · 14 Retro agents · 15 PR stacks · 16 QA agent.
+**Section map** (skills refer to these numbers): 1 Set up · 2 Reading an issue · 3 Claim · 4 Pick up context · 5 Posts · 6 Checkpoints and renewal · 7 Questions and live chat · 8 Release · 9 Gates · 10 Models and subagents · 11 Safety rules · 12 Run records · 13 Headless runs · 14 Retro agents · 15 PR stacks · 16 QA agent · 17 Autopilot.
 
 ---
 
@@ -298,10 +298,26 @@ Never run `gh stack merge`, `modify` or `unstack`, nor a bare `view`, `submit`, 
 
 ## 16. QA agent
 
-`goat-qa` is not a stage agent, and the coordinator never starts it: a person runs `/goat-qa` when they want the app exercised. It starts the project's app on local services, walks its screens in a browser, and files what it finds as backlog issues. For it these rules replace sections 3 to 9:
+`goat-qa` is not a stage agent. A person runs `/goat-qa` when they want the app exercised, and in an autopilot repo the coordinator starts it after each merge (section 17). It starts the project's app on local services, walks its screens in a browser, and files what it finds as backlog issues. For it these rules replace sections 3 to 9:
 
 - **No claim, no lease, no release.** It never changes an issue's stage or labels and never posts to an issue thread. Never run `claim`, `renew`, `post`, `doc`, `summary` or `release`. With an issue number it reads that issue with `goat.py show` only.
 - **Local only.** The app and database run on this machine with sample data. `EXPO_PUBLIC_SUPABASE_URL` (or the project's equivalent) must be `127.0.0.1` or `localhost`, or the run stops. Section 11 still applies in full: no hosted service, no build or release, no secret printed or screenshotted.
-- **Write only through `goat.py add`, plus its own report folder.** It may create at most 5 issues per run, never with `--ready`, so each lands in `stage:discovery` with no `goat:` label. It writes its report and screenshots under `~/.goat-ai/qa/<repo name>/<date>/`, and its browser tooling under `~/.goat-ai/qa/tools`. It never edits, installs into, commits to or pushes from the project.
+- **Write only through `goat.py add`, plus its own report folder.** It may create at most 5 issues per run (3 in autopilot, high and medium severity only), never with `--ready`, so each lands in `stage:discovery` with no `goat:` label. It writes its report and screenshots under `~/.goat-ai/qa/<repo name>/<date>/`, and its browser tooling under `~/.goat-ai/qa/tools`. It never edits, installs into, commits to or pushes from the project.
 - **No duplicates.** `goat.py list` cannot see backlog issues (no `goat:` label), so before filing it reads `goat.py list --json` and the "Filed" lists of earlier reports, and checks each earlier issue with `goat.py show`.
 - **If a step fails or is denied**, stop and say why in the final reply. Do not look for a workaround.
+
+## 17. Autopilot
+
+A repo can run on autopilot (the `autopilot` section of the developer's `~/.goat-ai/config.json`). The coordinator then starts every agent there with `GOAT_AUTOPILOT=1`, and it, not an agent and not a person, does the steps people do elsewhere:
+
+- **Gates.** It approves the size gate at once, and the plan gate once every issue on the issue's "Depends on" line is closed. Release to `tier-review` and `plan-review` exactly as section 9 says: the gate rules do not change.
+- **Merge.** When Review releases to `merge-review`, the coordinator merges the PR into the default branch once it is not a draft, merges cleanly and no check fails or is pending. A stack is merged one part per turn, bottom first. A failing check or a conflict sends the issue back to Implement with a comment (at most twice); anything else unclear is left to a person with a comment. It never merges into `main` or `master`.
+- **QA.** After the merge it starts `goat-qa` on the merged default branch, then closes the issue, which starts the retro and the cleanup.
+- **Next work.** It starts `goat-pm`, the project manager agent, when the pipeline has room. The PM picks backlog issues with `goat.py pick`; the coordinator checks each pick and starts it.
+
+What this means for each agent:
+
+- **No person reads a gate before work goes on.** Write every spec, plan and review as if it will be built and merged without anyone looking. A question (section 7) still stops the issue and still goes to a person: use it for anything a person must decide, such as a licence, money, an account, a product rule or a design call the project's docs leave open.
+- **Review is the last check before the merge.** Never release to `merge-review` with a `must fix` open, or with a check failing because of this change.
+- **Agents still never merge, approve or change a gate label**, and section 11 applies in full. `goat.py pick` is for the PM only, and it writes nothing to GitHub.
+

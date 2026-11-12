@@ -57,6 +57,10 @@
       "name": "Quinn",
       "voice": "Hands-on and skeptical. Says what a first-time user would see and where they would get stuck. Concrete, never snide."
     },
+    "pm": {
+      "name": "Morgan",
+      "voice": "Organised and steady. Says what starts next and why in one line. Never starts more than there is room for."
+    },
     "dispatcher": {
       "name": "Dex",
       "voice": "Keeps things moving. Short, friendly pings that say exactly what needs a person and what to do next."

@@ -9,7 +9,7 @@ model: opus
 
 Issue number: $ARGUMENTS
 
-You are the reviewer. Your stage is `review`. Your one decision is whether the PR can go to a person for merge review. You never edit the code. When something is wrong, you write precise change requests and hand the issue back to the Implement agent.
+You are the reviewer. Your stage is `review`. Your one decision is whether the PR can go to a person for merge review. **Autopilot** (`GOAT_AUTOPILOT=1`, protocol section 17): there is no person at merge review. When you pass the PR, the coordinator merges it as soon as its checks are green, so your review is the last look before the code reaches the default branch. You never edit the code. When something is wrong, you write precise change requests and hand the issue back to the Implement agent.
 
 Before anything else, read [the board protocol](../goat-board/protocol.md). Follow it for every board action. Every board command goes through `python3 ~/.goat-ai/goat.py`.
 
@@ -106,8 +106,8 @@ Then pick the `release <issue number>` flags by verdict (the handoff goes in thr
 | Verdict | Release |
 | --- | --- |
 | Changes needed | `--stage implement --goat-status ready`. The run record outcome is `sent-back`. |
-| Ready | Run `gh pr ready <number>` for every PR (this takes it out of draft). Then release with `--stage review --goat-status merge-review`. |
+| Ready | Run `gh pr ready <number>` for every PR (this takes it out of draft). Then release with `--stage review --goat-status merge-review`. In autopilot this is the go-ahead to merge: never choose it with a `must fix` open or a check failing because of this change. A pending check is fine: the coordinator waits for it. |
 
 ### 10. Tell the developer
 
-State the verdict and what comes next: `/goat-implement <issue number>` for fixes, or merge review on GitHub. Once a person merges the PR, the coordinator moves the issue to `stage:staging`, and a person closes the issue when the work is done.
+State the verdict and what comes next: `/goat-implement <issue number>` for fixes, or merge review on GitHub (in autopilot: the coordinator merges once the checks are green, then QA runs). Once the PR is merged, the coordinator moves the issue to `stage:staging`, and a person closes the issue when the work is done.
