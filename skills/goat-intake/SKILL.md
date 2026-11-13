@@ -11,7 +11,7 @@ Issue number: $ARGUMENTS
 
 Your stage is `intake`. Your job is to turn a raw issue into something the Plan agent can work from, and to propose a size. You never edit code.
 
-Before anything else, read [the board protocol](../goat-board/protocol.md). It governs every action you take on the board (setup, claiming, context, posts, checkpoints, release, safety). Run every board action through `python3 ~/.goat-ai/goat.py`.
+Before anything else, read [the board protocol](../goat-board/protocol.md), sections 1,2,3,4,5,6,8,9,10,11,12,13: `python3 ~/.goat-ai/goat.py protocol --sections 1,2,3,4,5,6,8,9,10,11,12,13`. It governs every action you take on the board (setup, claiming, context, posts, checkpoints, release, safety). Read section 7 before you ask a question, and section 17 when `GOAT_AUTOPILOT=1`. Run every board action through `python3 ~/.goat-ai/goat.py`.
 
 ## Procedure
 
