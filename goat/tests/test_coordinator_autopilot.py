@@ -79,6 +79,14 @@ class LaunchTests(unittest.TestCase):
         launches, skipped = self.launches(per_role={"qa": 1})
         self.assertEqual(skipped[0], ("QA #9 Issue 9", "all qa slots are in use"))
 
+    def test_qa_queued_this_turn_waits_for_the_next_read(self):
+        # The merge moved #9 to staging during this turn, but this turn's read still shows it in review.
+        autopilot.queue_qa(self.state, REPO, PATH, self.items[0])
+        self.items[0].status = "review"
+        launches, _ = self.launches()
+        self.assertNotIn("qa", [launch["role"] for launch in launches])
+        self.assertEqual(list(autopilot.qa_queue(self.state)), [autopilot.qa_key(REPO, "9")])
+
     def test_qa_is_dropped_when_a_person_closed_the_issue(self):
         autopilot.queue_qa(self.state, REPO, PATH, self.items[0])
         self.items[0].status = fb.DONE_STATUS
@@ -148,6 +156,20 @@ class FinishTests(unittest.TestCase):
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
+
+    def test_red_ci_is_announced_once_per_run(self):
+        sent = []
+        client = FakeClient(raw_item(9, stage="review", goat_status="merge-review", pr_url="u", comments=[]))
+        client.default = "dev"
+        client.ci = ("fail", "https://ci/run/7")
+        client.open_prs = [{"number": 109, "url": "u", "branch": "goat/9-a", "base": "dev"}]
+        boards = [(PATH, {}, client, {"repo": REPO}, items_of(client))]
+        with mock.patch.object(coordinator, "say", lambda webhook, message, what: sent.append(message[1])):
+            for _ in range(2):
+                coordinator.run_autopilot(config(), self.state, boards, "me", NOW, False, webhook=object())
+        self.assertEqual(len(sent), 1)
+        self.assertIn("stopped merging", sent[0])
+        self.assertEqual(client.merged, [])
 
     def test_qa_run_closes_the_issue(self):
         autopilot.queue_qa(self.state, REPO, PATH, items_of(self.client)[0])

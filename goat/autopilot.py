@@ -41,6 +41,8 @@ MERGE_METHODS = ("squash", "merge", "rebase")
 NEVER_MERGE_INTO = ("main", "master")
 # How often the autopilot sends one issue back to Implement for a failing check or a conflict before it holds.
 MAX_SEND_BACKS = 2
+# How long a PR in a repo with CI may sit with no check at all before the autopilot holds it for a person.
+NO_CHECKS_MINUTES = 30
 # How often QA is tried on one merged issue before the autopilot gives up and tells the owner.
 MAX_QA_TRIES = 2
 
@@ -297,10 +299,15 @@ def send_back(client, item, reason, shared):
     return "Sent #{} back to Implement: {}".format(item.id, reason)
 
 
-def merge_ready(client, items, user_id, now, autopilot, shared, dry_run=False, on_merged=None):
+def merge_ready(client, items, user_id, now, autopilot, shared, dry_run=False, on_merged=None, on_red=None):
     """Merges, part by part, the PRs of issues that passed review. Returns log lines.
 
-    on_merged(item, pr) is called after each merge, for Discord."""
+    At most one PR is merged per turn, and only while the default branch's own CI is green: each merge waits for the
+    CI run its own merge started, so a merge that breaks the branch stops the next one. In a repo with CI, a PR with
+    no checks yet waits (a re-targeted stack part waits for its new run), and is held after NO_CHECKS_MINUTES.
+
+    on_merged(item, pr) is called after each merge, and on_red(url) when the default branch's CI is failing, for
+    Discord."""
     candidates = [item for item in items if owned_and_free(item, user_id, now)
                   and fb.same_label(item.goat_status, fb.MERGE_REVIEW) and not is_held(item)]
     if not candidates:
@@ -309,6 +316,8 @@ def merge_ready(client, items, user_id, now, autopilot, shared, dry_run=False, o
     default = client.default_branch()
     open_prs = client.pull_requests("open")
     merged_prs = None
+    branch_ci = None
+    merged_one = False
     for item in candidates:
         parts = own_prs(open_prs, item.id)
         if not parts:
@@ -341,6 +350,17 @@ def merge_ready(client, items, user_id, now, autopilot, shared, dry_run=False, o
                 client.set_pr_base(part["number"], default)
                 lines.append("Re-targeted PR #{} of #{} to {}.".format(part["number"], item.id, default))
             continue
+        if branch_ci is None:
+            branch_ci = client.branch_ci(default)
+            if branch_ci[0] == "fail":
+                lines.append("No merges: CI on {} is failing ({}). Waiting until it is green again.".format(
+                    default, branch_ci[1] or "see GitHub Actions"))
+                if on_red and not dry_run:
+                    on_red(branch_ci[1])
+                return lines
+        if merged_one or branch_ci[0] == "pending":
+            lines.append("#{} waits: CI on {} is still running for the last merge.".format(item.id, default))
+            continue
         status = client.pr_status(part["number"])
         if status["draft"]:
             if not dry_run:
@@ -361,6 +381,19 @@ def merge_ready(client, items, user_id, now, autopilot, shared, dry_run=False, o
             lines.append("#{} waits: PR #{} has checks running or GitHub is still checking it.".format(
                 item.id, part["number"]))
             continue
+        if verdict == "none" and branch_ci[0] != "none":
+            # The repo has CI, so a PR with no checks has not been tested yet (for example a stack part that was
+            # just re-targeted). Wait for its run; hold when none comes.
+            updated = fb.parse_date(status.get("updated_at") or "")
+            if updated is not None and (now - updated).total_seconds() > NO_CHECKS_MINUTES * 60:
+                reason = ("no CI check has run on PR #{} in {} minutes, though `{}` has CI. Check that the workflow "
+                          "runs for this PR.".format(part["number"], NO_CHECKS_MINUTES, default))
+                if not dry_run:
+                    hold(client, item, reason, shared)
+                lines.append("Held #{}: {}".format(item.id, reason))
+            else:
+                lines.append("#{} waits: no CI check on PR #{} yet.".format(item.id, part["number"]))
+            continue
         if merged_prs is None:
             merged_prs = client.pull_requests("merged")
         # A stack keeps its commits (a merge commit), so the next part still merges cleanly onto the default branch.
@@ -375,6 +408,7 @@ def merge_ready(client, items, user_id, now, autopilot, shared, dry_run=False, o
             hold(client, item, "GitHub refused the merge of PR #{}: {}".format(part["number"], error), shared)
             lines.append("Held #{}: merge of PR #{} failed: {}".format(item.id, part["number"], error))
             continue
+        merged_one = True
         left = len(parts) - 1
         client.create_comment(item.id, "{}\n**🤖 {}** · Autopilot merged {} into `{}` (Review passed, checks {}).{}".format(
             MERGED_MARKER, team.dispatcher_signature(shared), part["url"], default, verdict,
