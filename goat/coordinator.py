@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 
 from goat import discord as discord_client
 from goat import autopilot, health, inbox, messenger, team, worktrees
-from goat.board import DONE, STAGES, STALLED, GoatItem, label_changes, same_label
+from goat.board import DONE, DONE_STATUS, STAGES, STALLED, GoatItem, label_changes, same_label
 from goat.board import MERGE_REVIEW as fb_MERGE_REVIEW, PLAN_REVIEW as fb_PLAN_REVIEW, STAGING as fb_STAGING, \
     TIER_REVIEW as fb_TIER_REVIEW
 from goat.choose import (DEFAULT_RETRO_CAP, RETRO_ROLE, SLOTS_FULL as SLOTS_FULL_TEXT, STAGE_PRIORITY, choose_launches,
@@ -767,6 +767,16 @@ def run_autopilot(config, state, boards, user_id, now, dry_run, webhook=None):
         if path not in paths:
             continue
 
+        def on_red(url, repo=paths[path]):
+            red = state.setdefault("autopilot", {}).setdefault("red", {})
+            if red.get(repo) == url:
+                return
+            red[repo] = url
+            say(webhook, messenger.dispatcher_message(
+                "CI on the default branch of {} is failing, so autopilot stopped merging. It starts again once CI is "
+                "green. Run: {}".format(repo, url or "see GitHub Actions"), shared, owner_name, repo,
+                url or "https://github.com/{}/actions".format(repo)), "the red CI message")
+
         def on_merged(item, pr):
             say(webhook, messenger.dispatcher_message(
                 "autopilot merged {} for #{} (Review passed, checks green).".format(pr["url"], item.id), shared,
@@ -775,7 +785,8 @@ def run_autopilot(config, state, boards, user_id, now, dry_run, webhook=None):
         try:
             lines = autopilot.approve_gates(client, items, user_id, now, autopilot.IssueStates(client, items), shared,
                                             dry_run)
-            lines += autopilot.merge_ready(client, items, user_id, now, pilot_settings(config), shared, dry_run, on_merged)
+            lines += autopilot.merge_ready(client, items, user_id, now, pilot_settings(config), shared, dry_run, on_merged,
+                                           on_red)
         except GitHubError as error:
             lines = ["Autopilot step failed in {}: {}".format(path, error)]
         for line in lines:
@@ -829,9 +840,12 @@ def autopilot_launches(config, state, boards, user_id, running_items, free_slots
         by_id = {item.id: item for item in items}
         for entry in qa_pending(state, repo):
             item = by_id.get(entry["item"])
-            if item is None or item.status != fb_STAGING:
-                # Closed or moved by a person: QA is no longer due.
+            if item is None or item.status == DONE_STATUS:
+                # Closed by a person: QA is no longer due.
                 entry["status"] = "dropped"
+                continue
+            if item.status != fb_STAGING:
+                # Queued in this turn: this turn's read still shows the stage before the merge.
                 continue
             if entry["item"] in running_items:
                 continue

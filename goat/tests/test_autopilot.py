@@ -261,6 +261,59 @@ class MergeTests(unittest.TestCase):
         self.assertIn(autopilot.HOLD_MARKER, client.comment_bodies(9)[-1])
 
 
+class CiGuardTests(unittest.TestCase):
+    def client(self, *raws, ci=("pass", "run-url")):
+        client = FakeClient(*raws)
+        client.default = "dev"
+        client.ci = ci
+        return client
+
+    def ready(self, client, number, pr_number, **kwargs):
+        client.open_prs.append(pr(pr_number, "goat/{}-x".format(number)))
+        client.pr_statuses[pr_number] = dict(status(pr_number, **kwargs), updated_at="2026-11-12T11:50:00Z")
+
+    def test_a_red_default_branch_stops_every_merge_and_says_so_once_per_turn(self):
+        client = self.client(merge_review_item(9), ci=("fail", "https://ci/run/1"))
+        self.ready(client, 9, 109)
+        red = []
+        lines = autopilot.merge_ready(client, items_of(client), "me", NOW, SETTINGS, SHARED, on_red=red.append)
+        self.assertEqual(client.merged, [])
+        self.assertEqual(red, ["https://ci/run/1"])
+        self.assertIn("CI on dev is failing", lines[0])
+
+    def test_waits_while_the_default_branch_ci_runs(self):
+        client = self.client(merge_review_item(9), ci=("pending", None))
+        self.ready(client, 9, 109)
+        lines = autopilot.merge_ready(client, items_of(client), "me", NOW, SETTINGS, SHARED)
+        self.assertEqual(client.merged, [])
+        self.assertEqual(lines, ["#9 waits: CI on dev is still running for the last merge."])
+
+    def test_one_merge_per_turn(self):
+        client = self.client(merge_review_item(9), merge_review_item(10))
+        self.ready(client, 9, 109)
+        self.ready(client, 10, 110)
+        lines = autopilot.merge_ready(client, items_of(client), "me", NOW, SETTINGS, SHARED)
+        self.assertEqual(len(client.merged), 1)
+        self.assertTrue(any("still running for the last merge" in line for line in lines))
+
+    def test_with_ci_a_pr_without_checks_waits_then_is_held(self):
+        client = self.client(merge_review_item(9))
+        self.ready(client, 9, 109, checks=[])
+        lines = autopilot.merge_ready(client, items_of(client), "me", NOW, SETTINGS, SHARED)
+        self.assertEqual((client.merged, lines), ([], ["#9 waits: no CI check on PR #109 yet."]))
+        client.pr_statuses[109]["updated_at"] = "2026-11-12T11:00:00Z"
+        lines = autopilot.merge_ready(client, items_of(client), "me", NOW, SETTINGS, SHARED)
+        self.assertEqual(client.merged, [])
+        self.assertIn("no CI check has run on PR #109 in 30 minutes", client.comment_bodies(9)[-1])
+        self.assertTrue(lines[0].startswith("Held #9"))
+
+    def test_without_ci_a_pr_without_checks_merges(self):
+        client = self.client(merge_review_item(9), ci=("none", None))
+        self.ready(client, 9, 109, checks=[])
+        autopilot.merge_ready(client, items_of(client), "me", NOW, SETTINGS, SHARED)
+        self.assertEqual(client.merged, [(109, "squash")])
+
+
 class BacklogTests(unittest.TestCase):
     def setUp(self):
         self.client = FakeClient(

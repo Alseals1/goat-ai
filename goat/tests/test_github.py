@@ -225,3 +225,28 @@ class ErrorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BranchCiTests(unittest.TestCase):
+    def ci(self, runs, head="abc"):
+        runner = Runner((["run", "list"], json.dumps(runs)), (["api", "repos/me/app/commits/dev"], head + "\n"))
+        return client(runner).branch_ci("dev")
+
+    def run_(self, sha="abc", status="completed", conclusion="success", workflow="CI", url="u"):
+        return {"headSha": sha, "status": status, "conclusion": conclusion, "workflowName": workflow, "url": url}
+
+    def test_no_runs_means_no_ci(self):
+        self.assertEqual(self.ci([]), ("none", None))
+
+    def test_states_for_the_head_commit(self):
+        self.assertEqual(self.ci([self.run_(url="ok")]), ("pass", "ok"))
+        self.assertEqual(self.ci([self.run_(conclusion="failure", url="bad"), self.run_(url="old")]), ("fail", "bad"))
+        self.assertEqual(self.ci([self.run_(conclusion="cancelled", url="c")]), ("fail", "c"))
+        self.assertEqual(self.ci([self.run_(status="in_progress", conclusion="", url="r")]), ("pending", "r"))
+        # The only runs are for an older commit: the head commit's run has not started yet.
+        self.assertEqual(self.ci([self.run_(sha="old")]), ("pending", None))
+
+    def test_the_newest_run_of_each_workflow_counts(self):
+        runs = [self.run_(url="rerun"), self.run_(conclusion="failure", url="first try"),
+                self.run_(workflow="Lint", conclusion="skipped")]
+        self.assertEqual(self.ci(runs), ("pass", "rerun"))

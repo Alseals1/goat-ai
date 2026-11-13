@@ -80,6 +80,8 @@ class FakeClient:
         self.retargeted = []
         self.closed = []
         self.merge_error = None
+        # branch_ci(): the default branch's CI as (state, url). "none" means the repo has no CI.
+        self.ci = ("none", None)
 
     # ---------- reads ----------
 
@@ -129,6 +131,9 @@ class FakeClient:
 
     def pr_status(self, number):
         return copy.deepcopy(self.pr_statuses[int(number)])
+
+    def branch_ci(self, branch):
+        return self.ci
 
     def commit_on_branch(self, commit, branch):
         return commit in self.commits_on_default

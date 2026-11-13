@@ -198,12 +198,40 @@ class GitHubClient:
         """What the autopilot needs before it merges a PR: {"number", "url", "state", "draft", "mergeable", "base",
         "branch", "checks"}. mergeable is MERGEABLE, CONFLICTING or UNKNOWN. checks is the raw statusCheckRollup list."""
         out = self.gh(["pr", "view", str(int(number)), "--repo", self.repo, "--json",
-                       "number,url,state,isDraft,mergeable,baseRefName,headRefName,statusCheckRollup"])
+                       "number,url,state,isDraft,mergeable,baseRefName,headRefName,statusCheckRollup,updatedAt"])
         data = json.loads(out or "{}")
         return {"number": data.get("number"), "url": data.get("url"), "state": (data.get("state") or "").upper(),
                 "draft": bool(data.get("isDraft")), "mergeable": (data.get("mergeable") or "UNKNOWN").upper(),
                 "base": data.get("baseRefName"), "branch": data.get("headRefName"),
-                "checks": data.get("statusCheckRollup") or []}
+                "checks": data.get("statusCheckRollup") or [], "updated_at": data.get("updatedAt")}
+
+    def branch_ci(self, branch):
+        """GitHub Actions on the branch's newest commit, from its push runs: (state, url of a run or None).
+
+        state: "none" when the branch has never had a push run (the repo has no CI for it), "pass" when every
+        workflow's newest run on the head commit succeeded, "fail" when one failed or was cancelled, and "pending"
+        when one is still running or none has started yet for the head commit."""
+        out = self.gh(["run", "list", "--repo", self.repo, "--branch", branch, "--event", "push", "--limit", "20",
+                       "--json", "status,conclusion,headSha,url,workflowName"])
+        runs = json.loads(out or "[]")
+        if not runs:
+            return "none", None
+        head = self.gh(["api", "repos/{}/commits/{}".format(self.repo, branch), "--jq", ".sha"]).strip()
+        newest = {}
+        # gh lists the newest run first, so the first run of each workflow is its newest.
+        for run in runs:
+            if run.get("headSha") == head:
+                newest.setdefault(run.get("workflowName"), run)
+        if not newest:
+            return "pending", None
+        for run in newest.values():
+            if (run.get("status") or "").lower() == "completed" and \
+                    (run.get("conclusion") or "").lower() not in ("success", "neutral", "skipped"):
+                return "fail", run.get("url")
+        for run in newest.values():
+            if (run.get("status") or "").lower() != "completed":
+                return "pending", run.get("url")
+        return "pass", next(iter(newest.values())).get("url")
 
     def default_branch(self):
         """The repo's default branch name, for example "main"."""
