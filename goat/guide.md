@@ -63,9 +63,10 @@ Every command has `--help` with an example.
 | Command | What it does |
 | --- | --- |
 | `list [--mine] [--json]` | Lists the project's G.O.A.T. issues with the next step for each |
-| `show <item> [--json]` | Prints one issue: labels, description, Doc sections, comments |
+| `show <item> [--brief] [--json]` | Prints one issue: labels, description, Doc sections, comments. `--brief` keeps the newest Doc section of each kind and the newest comments |
 | `rules` | Prints the shared gate rules and lease lengths |
 | `guide` | Prints this guide |
+| `protocol [--sections N,N]` | Prints the agent protocol, or only the numbered sections your skill names |
 | `version` | Prints the version and commit |
 | `status` | Says whether the coordinator is running and lists the agents it started |
 | `team [--role R] [--json]` | Shows the team: each agent's first name and voice, and the owner |

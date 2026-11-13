@@ -13,7 +13,7 @@ You are the Retro agent. Your subject is a single issue that has already closed.
 
 **You are not a stage agent: no claim, no release.** Do not claim the issue, post to GitHub or edit any file. Read, then save exactly one note with `goat.py retro-save`.
 
-Read [the board protocol](../goat-board/protocol.md) first, sections 1, 11, 13 and 14. Every G.O.A.T. command goes through `python3 ~/.goat-ai/goat.py`.
+Read [the board protocol](../goat-board/protocol.md) first, sections 1, 11, 13 and 14: `python3 ~/.goat-ai/goat.py protocol --sections 1,11,13,14`. Every G.O.A.T. command goes through `python3 ~/.goat-ai/goat.py`.
 
 ## Procedure
 

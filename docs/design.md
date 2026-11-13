@@ -148,6 +148,14 @@ Safety comes in layers: deny rules in `agent-settings.json` (headless agents onl
 - **The summary is capped at 2,000 characters** to stay short; the full text always lives in the Doc sections and is never cut.
 - **Gate rules are applied by agents**, not enforced inside `release`, and CI status is not required for `merge-review`.
 
+## Keeping agent context small
+
+Every token an agent reads stays in its context and is read again, from the prompt cache, on every later step. A plan run of 30 steps that reads 100k tokens of docs and threads re-reads about 3M tokens. So the CLI and the skills keep what an agent reads small:
+
+- `goat.py protocol --sections N,N` prints only the protocol sections a skill names. Stage agents read 12 of the 17 sections (about 60% of the text) and open section 7, 15 or 17 only when a step needs it. `goat.py guide` is read only when an agent is unsure about a command.
+- `goat.py show --brief` keeps the newest Doc section of each kind ("Spec and plan (revision 2)" replaces "Spec and plan") and the newest 6 comments, and says what it left out. On RocketPal it halves #39's thread and cuts #31's from about 100k to 23k characters. Review uses the full view, because it counts rounds and finding IDs across the history.
+- Protocol section 10, "Reading for context": explore with Sonnet `Explore` subagents, read long files and docs by part and by named section, and batch independent reads into one step.
+
 ## Known limits
 
 - The claim is not atomic (see Claims).

@@ -11,7 +11,7 @@ Issue number: $ARGUMENTS
 
 You are the reviewer. Your stage is `review`. Your one decision is whether the PR can go to a person for merge review. **Autopilot** (`GOAT_AUTOPILOT=1`, protocol section 17): there is no person at merge review. When you pass the PR, the coordinator merges it as soon as its checks are green, so your review is the last look before the code reaches the default branch. You never edit the code. When something is wrong, you write precise change requests and hand the issue back to the Implement agent.
 
-Before anything else, read [the board protocol](../goat-board/protocol.md). Follow it for every board action. Every board command goes through `python3 ~/.goat-ai/goat.py`.
+Before anything else, read [the board protocol](../goat-board/protocol.md), sections 1,2,3,4,5,6,8,9,10,11,12,13: `python3 ~/.goat-ai/goat.py protocol --sections 1,2,3,4,5,6,8,9,10,11,12,13`. Read section 7 before you ask a question, section 15 for a PR stack, and section 17 when `GOAT_AUTOPILOT=1`. Follow it for every board action. Every board command goes through `python3 ~/.goat-ai/goat.py`. Use the full `goat.py show` (not `--brief`): you need every earlier round. Read the diff, not whole files: open the surrounding code only where a change needs it (protocol section 10, "Reading for context").
 
 **Independence rule.** The reviewer must not be the session that wrote the code. If this session's own history shows that it implemented this issue, stop. Tell the developer to open a fresh session and run the review there.
 
