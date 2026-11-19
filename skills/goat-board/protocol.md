@@ -1,6 +1,6 @@
 # G.O.A.T. AI protocol for agents
 
-Every G.O.A.T. AI role skill points here. Read the whole file once before you act on an issue.
+Every G.O.A.T. AI role skill points here. Read the sections your skill names, with `python3 ~/.goat-ai/goat.py protocol --sections <numbers>`, before you act on an issue. Read another section only when a step sends you to it (for example section 7 before you ask a question, section 15 for a PR stack, section 17 when `GOAT_AUTOPILOT=1`). Every section you read stays in your context for the whole run, and so costs tokens on every later step.
 
 **What the board is.** The project's GitHub Issues: labels, assignees, milestones and comments. You never touch it directly. Every read and every write goes through one command-line tool, written `goat.py` in this file:
 
@@ -19,7 +19,7 @@ Always spell out that full path and run it inside the project repo (the main che
 Do these in order before your first command:
 
 - Confirm `~/.goat-ai/goat.py` exists. If it does not, stop and ask the developer to run `scripts/install.sh` from the G.O.A.T. AI repo.
-- Run `goat.py guide` and read it: it lists the labels, stages, statuses and commands.
+- `goat.py guide` lists every label, status and command. Your skill and this protocol already give the commands you need, so run it only when you are unsure about one.
 - Find out whether you run headless: `echo "${GOAT_HEADLESS:-0}"`. A `1` means the coordinator started you and nobody is reading this chat, so section 13 also applies to you.
 - Run `goat.py team --role <your role>` to learn your first name and voice (see section 5).
 - Run `goat.py rules` for the gate rules and lease lengths. Your lease is `leaseMinutesByStage[<your role>]` if that is a positive number, otherwise `leaseMinutes`, otherwise 30 minutes.
@@ -55,7 +55,7 @@ If you took over a stale claim, read the last handoff and the checkpoints (secti
 
 ## 4. Pick up context
 
-1. Run `goat.py show <number>` and read all of it: labels, description, Doc sections, and every comment from oldest to newest. Look hardest at the last handoff, the last checkpoint, and anything a person wrote after it (an answer, a change request). `show --json` and `list --json` give the same data for scripts.
+1. Run `goat.py show <number> --brief` and read all of it: labels, description, the newest Doc section of each kind, and the newest comments. Look hardest at the last handoff, the last checkpoint, and anything a person wrote after it (an answer, a change request). If the brief view says it left out comments and you need one of them (an answer or change request older than the last few comments), run `goat.py show <number>` for everything. The Review agent always uses the full view: it counts its rounds and finding IDs across the whole history. `show --json` and `list --json` give the same data for scripts.
 2. Read the repo's `CLAUDE.md`, and `knowledge/wiki/` if the repo has one.
 3. Post a short `note` (section 5): what you take the task to be, what you plan to do, and any questions.
 
@@ -204,6 +204,13 @@ Rules for subagents:
 - A subagent returns a summary. Before deciding anything from it, open the key lines yourself.
 - For a handful of tool calls, do it yourself: a subagent costs more than it saves.
 - The safety rules in section 11 bind subagents too, so copy the relevant ones into the prompt.
+
+**Reading for context.** Everything you read stays in this session's context, and the whole context is read again on every later step. So:
+
+- **Explore with subagents, edit with your own eyes.** To learn how an area works, which tests cover it, or what a long doc says about a topic, send a Sonnet `Explore` subagent and ask for `path:line` references and short answers. Open yourself only the files you will change or must judge, and only the parts that matter.
+- **Read long files by part.** For a file of more than about 300 lines, find the part first (`grep -n` for the symbol, or `grep -n '^#' <doc>` for a doc's headings), then read that range with `sed -n '<from>,<to>p'`. Never `cat` a whole long doc or source file to look for one thing.
+- **Read a doc by the section it names.** When `CLAUDE.md` or an issue says "read section 4.15 of `TECHNICAL_ARCHITECTURE.md`", read that section, not the file.
+- **Fewer, bigger steps.** Put independent reads in one command, or in parallel tool calls in one step, instead of one small read per step.
 
 ## 11. Safety rules
 

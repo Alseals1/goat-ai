@@ -56,15 +56,20 @@ def comment_data(comment):
     return {"createdAt": comment["created_at"], "author": views.author_of(comment), "text": comment["body"].strip()}
 
 
-def show_data(item, now):
-    """The issue with its summary, description, doc and comments (oldest first)."""
-    return {
+def show_data(item, now, brief=False):
+    """The issue with its summary, description, doc and comments (oldest first). brief: as `show --brief`."""
+    comments, older = views.brief_comments(item) if brief else (views.updates_of(item), 0)
+    data = {
         "version": VERSION,
         "item": dict(item_data(item, now), summary=or_none(item.summary)),
         "description": or_none(item.body.strip()),
-        "doc": views.doc_text(item),
-        "comments": [comment_data(comment) for comment in views.updates_of(item)],
+        "doc": views.doc_text(item, brief),
+        "comments": [comment_data(comment) for comment in comments],
     }
+    if brief:
+        data["leftOut"] = {"docSections": len(item.doc_sections) - len(views.newest_sections(item.doc_sections)),
+                           "comments": older}
+    return data
 
 
 def setup_data(repo, lines, problems):

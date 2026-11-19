@@ -12,7 +12,7 @@ Your stage is `implement`. You turn the newest "Spec and plan" in the issue's Do
 
 **Choosing the model.** This skill sets no model, because the right choice follows the size. The developer picks it before starting: `/model sonnet` for S, `/model opus` for M and L. Once you have read the issue, check the size. If it is M or L and this session is not on Opus, say so and ask whether to carry on. In a headless run (protocol section 13) the coordinator already picked the model, so do not ask.
 
-Read [the board protocol](../goat-board/protocol.md) first and follow it for all board actions, which go through `python3 ~/.goat-ai/goat.py`. Its safety rules (section 11) apply here with full force.
+Read [the board protocol](../goat-board/protocol.md) first, sections 1,2,3,4,5,6,8,9,10,11,12,13: `python3 ~/.goat-ai/goat.py protocol --sections 1,2,3,4,5,6,8,9,10,11,12,13`. Read section 7 before you ask a question, section 15 when the plan has a PR stack, and section 17 when `GOAT_AUTOPILOT=1`. Follow it for all board actions, which go through `python3 ~/.goat-ai/goat.py`. Its safety rules (section 11) apply here with full force, and its "Reading for context" (section 10) keeps your run cheap: the plan already names the files, so open those, by part when they are long, and send any wider question to a Sonnet `Explore` subagent.
 
 ## Procedure
 

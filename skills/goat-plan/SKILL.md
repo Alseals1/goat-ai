@@ -11,17 +11,18 @@ Issue number: $ARGUMENTS
 
 Your stage is `plan`. You produce a single document holding the spec and the plan, detailed enough that the Implement agent never has to guess. You never edit code.
 
-Read [the board protocol](../goat-board/protocol.md) first and follow it for all board actions. Run them through `python3 ~/.goat-ai/goat.py`.
+Read [the board protocol](../goat-board/protocol.md) first, sections 1,2,3,4,5,6,8,9,10,11,12,13: `python3 ~/.goat-ai/goat.py protocol --sections 1,2,3,4,5,6,8,9,10,11,12,13`. Read section 7 before you ask a question, section 15 when the work is size L or you plan a stack, and section 17 when `GOAT_AUTOPILOT=1`. Follow it for all board actions, and run them through `python3 ~/.goat-ai/goat.py`.
 
 ## Procedure
 
-**1. Start up.** Follow protocol sections 1, 3 and 4 with the role `plan`. Read the intake summary in the Doc (shown by `goat.py show`).
+**1. Start up.** Follow protocol sections 1, 3 and 4 with the role `plan`. Read the intake summary in the Doc (shown by `goat.py show <number> --brief`).
 
 **2. Revision or first plan?** If a person left a change request in the comments about an earlier plan, the issue came back from plan review. Revise that plan as requested, starting from the newest "Spec and plan" section in the Doc.
 
-**3. Study the code.** Read what the task touches. Follow the conventions in the repo's `CLAUDE.md`. Work out which tests cover the area and how to run them.
-- To get a map of the code, use Sonnet `Explore` subagents (protocol section 10). When the questions do not depend on each other, run them in parallel. Two good examples: "how does this feature work today" and "which tests cover it, and how are they run".
-- Open the files the plan will change yourself. A subagent summary is never enough to justify a plan step.
+**3. Study the code.** Read what the task touches. Follow the conventions in the repo's `CLAUDE.md`. Work out which tests cover the area and how to run them. Follow "Reading for context" in protocol section 10: this step is where a plan run spends most of its tokens.
+- **Map the code and the docs with Sonnet `Explore` subagents first** (protocol section 10), in parallel when the questions do not depend on each other. Good questions: "how does this feature work today, with `path:line` for each part", "which tests cover it, and how are they run", and "what do sections X and Y of `<doc>` require for this issue, in short points with line numbers". Do not read long docs or whole source folders into your own context to find this out.
+- **Then open yourself only what the plan will change or depend on**, and only the parts that matter (`grep -n`, then `sed -n` ranges). A subagent summary is never enough to justify a plan step, but it tells you which lines to check.
+- Put independent reads in one step.
 
 **4. Write the spec and plan.** Use this layout:
 

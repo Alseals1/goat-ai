@@ -18,6 +18,7 @@ read and write only local files in ~/.goat-ai/retros, and need no .env either.
 import argparse
 import json
 import os
+import re
 import sys
 
 from goat import board as fb
@@ -104,9 +105,39 @@ def command_show(args):
     goat = make_goat(args)
     item, _ = goat.load(args.item)
     if args.json:
-        print_json(views_json.show_data(item, utc_now()))
+        print_json(views_json.show_data(item, utc_now(), args.brief))
     else:
-        print(views.show_markdown(item, utc_now()))
+        print(views.show_markdown(item, utc_now(), args.brief))
+
+
+PROTOCOL_PATH = os.path.join(REPO_ROOT, "skills", "goat-board", "protocol.md")
+
+
+def protocol_sections(text, numbers):
+    """The protocol's opening (up to the first section) plus the numbered sections asked for, in protocol order.
+    Raises GoatError for a number the protocol does not have."""
+    parts = re.split(r"(?m)^(?=## \d+\. )", text)
+    opening, sections = parts[0], {}
+    for part in parts[1:]:
+        sections[int(re.match(r"## (\d+)\.", part).group(1))] = part
+    missing = [number for number in numbers if number not in sections]
+    if missing:
+        raise GoatError("The protocol has no section {}. Sections: 1 to {}.".format(
+            ", ".join(str(n) for n in missing), max(sections)))
+    return opening + "".join(sections[number] for number in sorted(set(numbers)))
+
+
+def command_protocol(args):
+    """Prints the agent protocol, or only some of its sections. Needs no .env."""
+    with open(PROTOCOL_PATH) as f:
+        text = f.read()
+    if args.sections:
+        try:
+            numbers = [int(part) for part in args.sections.split(",") if part.strip()]
+        except ValueError:
+            raise GoatError("--sections takes section numbers, like 1,3,4.")
+        text = protocol_sections(text, numbers)
+    print(text.rstrip("\n"))
 
 
 def command_setup_repo(args):
@@ -478,8 +509,12 @@ def build_parser():
                        item=False)
     list_command.add_argument("--mine", action="store_true", help="only issues assigned to you")
     list_command.add_argument("--json", action="store_true", help=json_help)
-    add("show", command_show, "one issue as Markdown: labels, description, doc, comments",
-        GOAT + " show 14").add_argument("--json", action="store_true", help=json_help)
+    show_command = add("show", command_show, "one issue as Markdown: labels, description, doc, comments",
+                       GOAT + " show 14 --brief")
+    show_command.add_argument("--json", action="store_true", help=json_help)
+    show_command.add_argument("--brief", action="store_true",
+                              help="only the newest doc section of each kind and the newest {} comments".format(
+                                  views.BRIEF_COMMENTS))
     setup_repo = add("setup-repo", command_setup_repo, "create G.O.A.T.'s labels in the project's repo (safe to repeat)",
                      GOAT + " setup-repo --milestone 'v0.1'", item=False)
     setup_repo.add_argument("--check", action="store_true", help="change nothing; report the missing labels")
@@ -587,6 +622,9 @@ def build_parser():
     add("rules", command_rules, "print the shared gates and leases (goat-config.json)", GOAT + " rules", item=False)
     add("guide", command_guide, "print the agent guide: commands, stages, goat statuses, and what agents may run",
         GOAT + " guide", item=False)
+    add("protocol", command_protocol, "print the agent protocol, or only the sections a skill names",
+        GOAT + " protocol --sections 1,3,4", item=False).add_argument(
+        "--sections", help="comma-separated section numbers (default: the whole protocol)")
 
     release = add("release", command_release, "post the handoff and release the claim",
                   heredoc("release 14 --stage plan --goat-status plan-review"), session=True)

@@ -1,5 +1,7 @@
 """Read-only goat views: list issues, show one issue as Markdown, and check a repo's goat labels."""
 
+import re
+
 from goat import board as fb
 
 
@@ -87,16 +89,49 @@ def updates_of(item):
             if not fb.is_state_comment(comment.get("body")) and fb.doc_title(comment.get("body")) is None]
 
 
-def doc_text(item):
-    """The doc sections as one Markdown text, or None when the issue has none."""
-    sections = item.doc_sections
+def doc_text(item, brief=False):
+    """The doc sections as one Markdown text, or None when the issue has none. brief: only the newest section of
+    each kind (see newest_sections)."""
+    sections = newest_sections(item.doc_sections) if brief else item.doc_sections
     if not sections:
         return None
     return "\n\n".join(fb.doc_markdown(section["body"]) for section in sections)
 
 
-def show_markdown(item, now):
-    """The issue, its summary, description, doc and comments, as one Markdown document."""
+# `show --brief` keeps this many of the newest comments.
+BRIEF_COMMENTS = 6
+REVISION = re.compile(r"\s*\((?:revision|round)\s+\d+\)\s*$", re.IGNORECASE)
+
+
+def section_kind(title):
+    """"Spec and plan (revision 2)" and "Spec and plan" are one kind; so are "Review notes (round 1)" and "(round 2)"."""
+    return REVISION.sub("", title or "").strip().lower()
+
+
+def newest_sections(sections):
+    """The newest doc section of each kind, in the order the kinds first appeared."""
+    newest = {}
+    for section in sections:
+        newest[section_kind(section["title"])] = section
+    order = []
+    for section in sections:
+        kind = section_kind(section["title"])
+        if kind not in order:
+            order.append(kind)
+    return [newest[kind] for kind in order]
+
+
+def brief_comments(item):
+    """(the newest BRIEF_COMMENTS comments, how many older ones were left out)."""
+    comments = updates_of(item)
+    return comments[-BRIEF_COMMENTS:], max(0, len(comments) - BRIEF_COMMENTS)
+
+
+def show_markdown(item, now, brief=False):
+    """The issue, its summary, description, doc and comments, as one Markdown document.
+
+    brief: only the newest doc section of each kind and the newest comments, with a line that says what was left
+    out. Agents that need the whole history (Review counting its rounds and finding IDs) use the full view."""
     claim = "none"
     if item.claim:
         state = "live" if item.claim_is_live(now) else "expired"
@@ -125,12 +160,18 @@ def show_markdown(item, now):
         "",
         "## Doc",
         "",
-        doc_text(item) or "None",
+        doc_text(item, brief) or "None",
         "",
         "## Comments (oldest first)",
         "",
     ]
-    comments = updates_of(item)
+    comments, older = brief_comments(item) if brief else (updates_of(item), 0)
+    if brief:
+        dropped = len(item.doc_sections) - len(newest_sections(item.doc_sections))
+        if dropped or older:
+            out.insert(out.index("## Comments (oldest first)"),
+                       "_Brief view: left out {} older doc section(s) and {} older comment(s). Run `goat.py show {}` "
+                       "for everything._\n".format(dropped, older, item.id))
     if not comments:
         out.append("None")
     for comment in comments:
