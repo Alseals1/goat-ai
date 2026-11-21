@@ -70,7 +70,7 @@ A project is a GitHub repo whose issues the factory works on, with a local check
    | `stage:intake` + `goat:ready` | `/goat-intake <number>` |
    | `stage:intake` + `goat:approved` | `/goat-plan <number>` |
    | `stage:plan` + `goat:ready` | `/goat-plan <number>` |
-   | `stage:plan` + `goat:approved` | `/model sonnet` (size S) or `/model opus` (M, L), then `/goat-implement <number>` |
+   | `stage:plan` + `goat:approved` | `/model sonnet` (sizes S and M) or `/model opus` (L), then `/goat-implement <number>` |
    | `stage:implement` + `goat:ready` | The same as the row above |
    | `stage:review` + `goat:ready` | `/goat-review <number>` (in a new session) |
 

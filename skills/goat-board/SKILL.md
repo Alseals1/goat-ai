@@ -24,7 +24,7 @@ Translate the next step from `list` like this:
 
 | `list` says | Write |
 | --- | --- |
-| `run /goat-<role> <number>` | The command to run in this repo. For `implement`, put the model switch first: `/model sonnet` for size S, `/model opus` for M and L. |
+| `run /goat-<role> <number>` | The command to run in this repo. For `implement`, put the model switch first: `/model sonnet` for sizes S and M, `/model opus` for L. |
 | `waits for a person` | What the person must do: approve a gate by swapping its label for `goat:approved`; answer a question in a comment and then swap the label for `goat:ready`; for `goat:chat`, run `python3 ~/.goat-ai/goat.py chat <number>` in a terminal; for `goat:stalled`, read the agent log named in the issue's comment, then set `goat:ready` to retry |
 | `agent working` | Which role holds the claim and when it expires |
 | merge review | "Merge the PR on GitHub." The coordinator then moves the issue to `stage:staging`. To ask for changes instead: comment, swap `stage:review` for `stage:implement`, and swap `goat:merge-review` for `goat:ready` |

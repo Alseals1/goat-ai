@@ -187,7 +187,7 @@ Each role skill names its own model in its frontmatter. That choice lasts until 
 | Board status | Haiku |
 | Intake | Sonnet |
 | Plan | Opus |
-| Implement | Chosen by the coordinator or the developer: Sonnet for size S, Opus for M, L and XL |
+| Implement | Chosen by the coordinator or the developer: Sonnet for sizes S and M, Opus for L and XL |
 | Review | Opus |
 
 Hand read-only work to subagents on a cheaper model, and always set the subagent's `model` explicitly:

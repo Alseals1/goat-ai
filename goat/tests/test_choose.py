@@ -45,7 +45,8 @@ class ModelTests(unittest.TestCase):
 
     def test_implement_model_follows_size(self):
         self.assertEqual(model_for("implement", "S"), "sonnet")
-        self.assertEqual(model_for("implement", "M"), "opus")
+        self.assertEqual(model_for("implement", "M"), "sonnet")
+        self.assertEqual(model_for("implement", "L"), "opus")
         self.assertEqual(model_for("implement", "XL"), "opus")
         self.assertEqual(model_for("implement", ""), "opus")
 
