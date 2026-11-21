@@ -54,7 +54,7 @@ def model_for(role, size):
 # section overrides it per role.
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_EFFORT = {"intake": "medium", "plan": "high", "implement": "high", "review": "high", RETRO_ROLE: "medium",
-                  "qa": "medium", "pm": "high"}
+                  "qa": "medium", "research": "medium", "pm": "high"}
 
 
 def effort_for(role, shared):

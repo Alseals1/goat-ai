@@ -119,6 +119,8 @@ Only goat-retro and goat-retro-aggregate use these. They read and write local fi
 
 **QA agent only:** goat-qa has no commands of its own. It reads with `list` and `show`, and files findings with `add` (never `--ready`, at most 5 per run). It never claims, posts or releases. It starts the project's app on local services and writes its report under `~/.goat-ai/qa/`. See section 16 of the protocol.
 
+**Research agent only:** goat-research has no commands of its own. It reads with `list` and `show`, and files design proposals with `add` (never `--ready`, at most 5 per run), each with its sources. It reads public web pages, never changes an issue, and writes its report under `~/.goat-ai/research/`. See section 18 of the protocol.
+
 **People only:**
 
 | Command | What it does |
