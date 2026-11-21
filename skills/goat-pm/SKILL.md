@@ -29,7 +29,8 @@ Read [the board protocol](../goat-board/protocol.md) first, sections 1, 11, 13 a
    3. Other QA findings (bugs, UX, UI) rank by their severity among the planned work: high next to `prio:next`, medium next to `prio:later`, low next to `prio:last`.
    4. **No clashes.** Skip an issue that would change the same files or the same screen as work in flight, or that the roadmap says not to run beside it. Prefer a pair that touches different parts of the code. When nothing fits without a clash, pick nothing: the next run comes when the work in flight moves on.
    5. **Skip work for a person.** An issue that says a person must do it (a measurement on a device, a purchase, an account, a licence or a design decision the product owner has not made) is not for agents. Leave it.
-   6. **Never pick something that only looks ready.** If the issue body names a dependency in words that the "Depends on" line misses, treat it as blocked.
+   6. **Research proposals wait for the owner.** An issue the Research agent filed (its body starts with `<!-- goat:research-proposal -->`) shows up in `ready` only after the owner gave it a `prio:` label; then rank it by that label and the "Project manager's view" written in it. Until then it is in `blocked`, and you leave it.
+   7. **Never pick something that only looks ready.** If the issue body names a dependency in words that the "Depends on" line misses, treat it as blocked.
 6. **Pick.** For each choice, in order:
 
    ```sh

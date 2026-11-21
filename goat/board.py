@@ -64,6 +64,9 @@ PRIORITY_PREFIX = "prio:"
 # Hidden first lines of G.O.A.T.'s comments.
 STATE_MARKER = "<!-- goat:state "
 DOC_MARKER = "<!-- goat:doc "
+# Hidden line in the body of an issue the Research agent filed. The autopilot starts such an issue only once a person
+# has given it a prio: label, so an idea from the web is never built before the owner agrees to it.
+RESEARCH_MARKER = "<!-- goat:research-proposal -->"
 
 
 def same_label(a, b):
