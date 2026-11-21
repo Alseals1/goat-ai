@@ -192,6 +192,26 @@ It only works while the coordinator is running, and it checks the channel every 
 
 An issue keeps one label of each kind. G.O.A.T. keeps the claim, the PR link and a short summary in one comment that starts with a hidden `goat:state` marker: do not edit or delete it. The long stage outputs (intake summary, spec and plan, review notes) are "Doc" comments.
 
+### Label Doctor
+
+Moving an issue by hand means editing labels, and a small slip makes G.O.A.T. ignore the issue without a word: `stage:intake` with no `goat:ready`, or `goat:approved` added at a gate while the wrong label was removed. Run the doctor in the project repo:
+
+```sh
+python3 ~/.goat-ai/goat.py doctor
+```
+
+It checks your issues and unassigned ones, and prints each problem with its fix:
+
+```
+#14 Add the login screen  [goat:tier-review, goat:approved]
+  Problem: It has a goat: label but no stage label, so no agent can pick it up.
+  Fix: Add `stage:intake`: `goat:tier-review` is set at that stage.
+  Problem: It has 2 goat: labels (`goat:tier-review` and `goat:approved`), so G.O.A.T. cannot tell what it waits for.
+  Fix: If you approved the gate, remove `goat:tier-review`. If you did not, remove `goat:approved`.
+```
+
+It finds: no stage label or more than one, more than one `goat:` label, an agent stage with no `goat:` label, a `goat:` label in the backlog or after the merge, `goat:approved` where no agent follows (`stage:implement`, `stage:review`), a gate label at the wrong stage, `goat:working` with no claim or a claim that ended over an hour ago, an unassigned issue, `goat:done` on an open issue, a closed issue that still has another `goat:` label, and labels with the `stage:` or `goat:` prefix that G.O.A.T. does not know. It only reads, and it exits with code 1 when it finds a problem. `goat.py list --problems` shows the same issues one per line.
+
 ## Retros
 
 A retro looks back at one closed issue and saves a short note: what went well, what went badly, and what to change in the factory. Run it in the project repo:
@@ -345,7 +365,7 @@ If the coordinator cannot read GitHub several turns in a row, `health` says so.
 
 ## goat.py for scripts and agents
 
-`list`, `show`, `setup-repo` and `health` take `--json`. They then print one JSON document on stdout and nothing else. Each document has `"version": "0.1"`, so a reader can see when a shape changes.
+`list`, `show`, `setup-repo`, `doctor` and `health` take `--json`. They then print one JSON document on stdout and nothing else. Each document has `"version": "0.1"`, so a reader can see when a shape changes.
 
 `claim` and `release` print JSON already, without a version field.
 
@@ -354,7 +374,7 @@ Errors print one line on stderr, and the exit code tells the failure type:
 | Code | Meaning |
 | --- | --- |
 | 0 | Success |
-| 1 | Other failure. `setup-repo --check` also exits 1 when it finds missing labels |
+| 1 | Other failure. `setup-repo --check` also exits 1 when it finds missing labels, and `doctor` when it finds a label problem |
 | 2 | Bad usage: wrong command or arguments |
 | 3 | Configuration missing: the repo, the `gh` login, or the session id |
 | 4 | Not available: issue not found, no `goat:` label, not assigned to you, or not ready for this role |

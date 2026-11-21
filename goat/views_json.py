@@ -1,4 +1,4 @@
-"""JSON versions of the read-only views (`list`, `show`, `setup-repo` with --json), for agents and scripts.
+"""JSON versions of the read-only views (`list`, `show`, `setup-repo`, `doctor` with --json), for agents and scripts.
 
 Each builder returns a plain dict with a top-level "version". Empty text is null.
 """
@@ -75,3 +75,18 @@ def show_data(item, now, brief=False):
 def setup_data(repo, lines, problems):
     """The setup lines and the problems found. ok is false when there are problems."""
     return {"version": VERSION, "repo": repo, "lines": lines, "problems": problems, "ok": not problems}
+
+
+def problem_data(problem):
+    return {"code": problem.code, "short": problem.short, "text": problem.text, "fix": problem.fix}
+
+
+def problems_data(found, now):
+    """Each issue with problems, with its labels and the problems (see goat/doctor.py)."""
+    return [dict(item_data(item, now), labels=list(item.labels),
+                 problems=[problem_data(problem) for problem in problems]) for item, problems in found]
+
+
+def doctor_data(repo, found, checked, now):
+    """The doctor's report. ok is false when it found problems."""
+    return {"version": VERSION, "repo": repo, "checked": checked, "items": problems_data(found, now), "ok": not found}

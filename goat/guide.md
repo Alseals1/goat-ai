@@ -62,7 +62,8 @@ Every command has `--help` with an example.
 
 | Command | What it does |
 | --- | --- |
-| `list [--mine] [--json]` | Lists the project's G.O.A.T. issues with the next step for each |
+| `list [--mine] [--problems] [--json]` | Lists the project's G.O.A.T. issues with the next step for each. `--problems` shows only the issues whose labels G.O.A.T. cannot act on |
+| `doctor [--json]` | The Label Doctor: lists each issue (yours and unassigned) whose labels G.O.A.T. cannot act on, what goes wrong, and the label change that fixes it. Reads only; exit code 1 when it finds a problem. Agents tell the developer the fix and never change the labels |
 | `show <item> [--brief] [--json]` | Prints one issue: labels, description, Doc sections, comments. `--brief` keeps the newest Doc section of each kind and the newest comments |
 | `rules` | Prints the shared gate rules and lease lengths |
 | `guide` | Prints this guide |

@@ -111,6 +111,17 @@ The owner types `start 9`, `approve 9`, `send back 9: note` or `answer 9: text` 
 - **Secrets.** The token is only in the `Authorization` header and is removed from every error. `discord-check` reads only. Agents are denied the file, Discord, and both commands.
 - **Residual risk.** A taken-over Discord account could approve a size or plan, never a merge. Two-step verification is the defence. A PIN word is an option if needed.
 
+## The Label Doctor
+
+People operate the gates by editing labels, and G.O.A.T. acts only on an issue whose labels make sense, so a slip used to be a silent no-op. `goat/doctor.py` reads the same issues the coordinator reads and, for each issue assigned to the `gh` user or to nobody, checks that it has one known stage label, at most one known `goat:` label, and a pair that some agent or person acts on (see the README for the full list). Each problem has a stable code, a short form for `list --problems`, the text, and the fix.
+
+- **It only reads.** `goat.py doctor` and `list --problems` change nothing.
+- **It never decides a gate.** When two `goat:` labels disagree, such as `goat:approved` beside `goat:tier-review`, the fix names both choices ("if you approved the gate, remove ...; if not, remove `goat:approved`"). It never suggests turning a missing approval into one.
+- **`goat:working` waits an hour.** An expired claim is normal for a while: the coordinator restarts the stage's agent on its next turn. The doctor reports it only when the claim ended more than an hour ago, or when there is no claim at all.
+- **A closed issue** only needs `goat:done`. A leftover status is reported with `goat.py cleanup` as the fix, because the cleanup replaces it.
+
+Planned next: the coordinator runs the same check each turn and tells the owner once per problem, and a `--fix` option makes only unambiguous structural fixes after asking.
+
 ## Merge detection
 
 A merged PR is a native GitHub event, so the coordinator looks for it each turn (`goat/merge.py`). For each of your issues at `goat:merge-review` it looks for merged PRs on `goat/<number>-*` branches. It moves the issue only when the PR stored on the issue (the bottom PR of a stack) is among them, no `goat/<number>-*` branch still has an open PR, and **every merged part has actually reached the default branch**. It then posts a comment and sets `stage:staging` with no `goat:` label.
