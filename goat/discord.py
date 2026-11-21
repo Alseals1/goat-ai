@@ -28,6 +28,8 @@ from goat.config import LOCAL_DIR, parse_env_file
 
 ENV_FILE = os.path.join(LOCAL_DIR, "discord.env")
 WEBHOOK_KEY = "DISCORD_WEBHOOK_DISPATCH"
+# A second channel, for the Research agent's discussion with the project manager (`goat.py research-say`).
+RESEARCH_WEBHOOK_KEY = "DISCORD_WEBHOOK_RESEARCH"
 BOT_TOKEN_KEY = "DISCORD_BOT_TOKEN"
 GUILD_KEY = "DISCORD_GUILD_ID"
 OWNER_KEY = "DISCORD_OWNER_USER_ID"
@@ -75,9 +77,9 @@ def ssl_context():
 
 
 class Webhook:
-    def __init__(self, url, opener=None, sleep=time.sleep):
+    def __init__(self, url, opener=None, sleep=time.sleep, key=WEBHOOK_KEY):
         if not WEBHOOK_URL.match(url or ""):
-            raise DiscordError("DISCORD_WEBHOOK_DISPATCH does not look like a Discord webhook URL.")
+            raise DiscordError("{} does not look like a Discord webhook URL.".format(key))
         self.url = url
         self.opener = opener or self.open
         self.sleep = sleep
@@ -217,10 +219,27 @@ class Bot:
             raise DiscordError("The {} is missing or not a Discord id.".format(name))
 
 
-def from_settings(values):
-    """A Webhook from the env-file values, or None when no webhook is set."""
-    url = (values or {}).get(WEBHOOK_KEY, "").strip()
-    return Webhook(url) if url else None
+def from_settings(values, key=WEBHOOK_KEY):
+    """A Webhook from the env-file values, or None when no webhook is set. key: which channel's webhook."""
+    url = (values or {}).get(key, "").strip()
+    return Webhook(url, key=key) if url else None
+
+
+def split_message(text, limit=MAX_CONTENT):
+    """Text cut into Discord-sized messages, at paragraph breaks where it can, then at line breaks, then anywhere."""
+    text = clean(text, len(str(text or "")) + 1)
+    parts = []
+    while len(text) > limit:
+        cut = text.rfind("\n\n", 0, limit)
+        if cut <= 0:
+            cut = text.rfind("\n", 0, limit)
+        if cut <= 0:
+            cut = limit
+        parts.append(text[:cut].rstrip())
+        text = text[cut:].lstrip()
+    if text:
+        parts.append(text)
+    return parts
 
 
 def bot_from_settings(values):

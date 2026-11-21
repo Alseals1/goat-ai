@@ -54,6 +54,15 @@ Read [the board protocol](../goat-board/protocol.md) first, sections 1, 10, 11 a
    - Run `goat.py backlog --json` yourself (a subagent never runs `goat.py`), and note `goat.py team --role pm` for Morgan's voice.
    - Start one **Opus** subagent as the project manager. Paste into its prompt: the drafts with their evidence, the backlog JSON, the brief from step 2, and these instructions: "You are Morgan, the project manager of this project. Read `~/.claude/skills/goat-pm/SKILL.md` for how you judge work, and the roadmap and design sections named below. You only read. For each proposal, answer: where it fits (now, a named milestone or phase, after playtests, or not at all) and why; the open issues it must wait for, as issue numbers; a suggested priority (`first`, `next`, `later`, `last`, `best-effort`); any clash with work in flight or in the backlog; and at most two questions or concerns for the researcher. Then say which three you would do first."
    - Answer its questions and concerns with evidence, or by changing or dropping a proposal, and send your answers back once (continue the same subagent, or start a new one with the whole exchange pasted in). Two rounds at most: where you still disagree, record both views.
+   - **Post the talk to Discord as it happens**, so the owner can follow it in the research channel. Post each turn with `research-say`, Rae's turns `--as research` and Morgan's `--as pm`:
+
+     ```sh
+     python3 ~/.goat-ai/goat.py research-say --as research --file - <<'EOF'
+     <the turn>
+     EOF
+     ```
+
+     Turns, in order: Rae opens with the topic and each draft in one or two lines (title, the idea, how many sources); Morgan's answer; Rae's reply; Morgan's second answer, if there is one; and after filing (step 8), Rae closes with each filed issue's number, title and suggested priority, and the three Morgan would do first. Post Morgan's words as the subagent wrote them, trimmed only for length, never changed in meaning. Keep each turn under about 1,500 characters; the command splits longer ones. If `research-say` says the channel is not set up, or fails, carry on without it and note it in the report.
    - Keep the outcome for the issues and the report: per proposal, the project manager's fit, wait-for issues, suggested priority and any open disagreement. Drop a proposal you both agree is not worth it, and list it under "Ideas not filed" with the reason.
 8. **File the strongest proposals**, at most 5, one issue each, ranked by evidence, by the project manager's view, and by how much fun they add for little work. Never pass `--priority`: the priority is the owner's call, and in an autopilot repo the coordinator starts a research proposal only after the owner gives it a `prio:` label. Keep the first two lines exactly as below: the hidden marker, then the `Depends on` line (write `Depends on: none` when the project manager named no issue, and do not use the words "depends on" anywhere else in the body, because the autopilot reads the first such line):
 
@@ -86,7 +95,7 @@ Read [the board protocol](../goat-board/protocol.md) first, sections 1, 10, 11 a
 
    `add` prints the new issue number. Never use `--ready`: the issue lands in `stage:discovery` for a person to triage. If `add` fails, stop filing, and say so in the report and the final reply.
 9. **Save the report** as `~/.goat-ai/research/<repo name>/<YYYY-MM-DD>-<topic slug>.md`, using the template below.
-10. **Report.** Give the developer the report path, the issues you filed with the project manager's suggested priority for each, the three the project manager would do first, and anything waiting for their decision (including any disagreement between you and the project manager). Remind them that a proposal starts only once they give it a `prio:` label. The voice from `goat.py team --role research` colours only the first and last sentence.
+10. **Report.** Post Rae's closing turn to Discord (step 7). Give the developer the report path, the issues you filed with the project manager's suggested priority for each, the three the project manager would do first, and anything waiting for their decision (including any disagreement between you and the project manager). Remind them that a proposal starts only once they give it a `prio:` label. The voice from `goat.py team --role research` colours only the first and last sentence.
 
 ## Report template
 
