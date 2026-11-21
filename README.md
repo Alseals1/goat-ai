@@ -22,6 +22,7 @@ This repo is the **factory**. The app it builds lives in a **separate repo** (se
 | `goat/autopilot.py` | Autopilot: gate approvals, merges, QA after merge, and starting the PM's picks |
 | `skills/goat-retro/`, `goat-retro-aggregate/` | The retro skills: one reviews a closed issue and saves a local note; the aggregate finds patterns across notes and adds improvement issues. See [Retros](#retros) |
 | `scripts/install.sh` | Links the skills and the CLI, and creates the local config with default agent limits |
+| `viz/` | The G.O.A.T. floor: a read-only, local web page that shows the agents and issues as an animated office. Run `python3 viz/live_server.py` and open http://127.0.0.1:8765. See [viz/README.md](viz/README.md) |
 | `docs/` | The design |
 
 ## Requirements

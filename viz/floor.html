@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G.O.A.T. floor</title>
+<style>
+:root{--bg:#1b1b22;--panel:#24242c;--text:#e8e6df;--muted:#9a988f;--border:#3a3a44;--accent:#85B7EB;--warn:#FAC775;--bad:#F09595;--good:#97C459}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+.wrap{max-width:1500px;margin:0 auto;padding:16px}
+h1{font-size:16px;font-weight:500;margin:0 0 2px}
+.sub{color:var(--muted);margin:0 0 10px}
+canvas{width:100%;image-rendering:pixelated;display:block;border:1px solid var(--border);border-radius:6px;background:#111;cursor:pointer}
+#c3{image-rendering:auto;aspect-ratio:16/9;cursor:grab;touch-action:none}
+.hint{color:var(--muted);font-size:12px;margin:6px 0 0}
+.bar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0;color:var(--muted)}
+.bar .sp{flex:1}
+button{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer}
+button.on{border-color:var(--accent);color:var(--accent)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:10px 12px;min-height:170px;max-height:320px;overflow:auto}
+.panel h2{margin:0 0 6px;font-size:12px;color:var(--muted);font-weight:500}
+#log div{padding:1px 0;border-bottom:1px solid #2e2e37}
+#log .t{color:var(--muted);margin-right:6px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+td,th{padding:2px 4px;border-bottom:1px solid var(--border);text-align:left;font-weight:400;vertical-align:top}
+th{color:var(--muted)}
+tr.att td{color:var(--warn)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--muted);margin-top:10px}
+#info p{margin:0 0 4px;word-break:break-word}
+#info .k{color:var(--muted)}
+a{color:var(--accent)}
+#errors{color:var(--bad)}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>G.O.A.T. floor (live)</h1>
+  <p class="sub">Read only. Shows the agents your coordinator runs on this computer and the G.O.A.T. issues of your repos. Click an agent or a card for details.</p>
+  <canvas id="c"></canvas>
+  <canvas id="c3" style="display:none"></canvas>
+  <p class="hint">3D: drag to turn, right-drag or Shift-drag to move, scroll to zoom, double-click to reset.</p>
+  <div class="bar">
+    <span><span class="dot" id="conn"></span><span id="connText">Connecting…</span></span>
+    <span id="boardAge"></span>
+    <span id="coordInfo"></span>
+    <span id="errors"></span>
+    <span class="sp"></span>
+    <button id="view">View: 2D</button>
+    <button id="sound">Sound: off</button>
+    <button id="time">Time: real</button>
+  </div>
+  <div class="grid">
+    <div class="panel"><h2>Board (waiting for you in yellow)</h2><table id="board"></table></div>
+    <div class="panel"><h2>Activity</h2><div id="log"></div></div>
+    <div class="panel"><h2>Selected</h2><div id="info" style="color:var(--muted)">Click an agent or a card.</div></div>
+  </div>
+  <div class="legend" id="legend"></div>
+</div>
+<script src="vendor/three.min.js"></script>
+<script src="floor.js"></script>
+<script src="floor3d.js"></script>
+<script>
+(() => {
+const F = window.Floor;
+const {R,wall,trays,gateIn,lounge,parking,shelf,dock,splitTray,SPAWN,Agent,wait,until,place,pick,drop,stand,STAGES,SIZECOL,NOSIZE,roleKey,roleName} = F;
+// The goat: statuses where a person must act (WAITS_FOR_PERSON in goat/board.py), as the server spells them.
+const GATES = new Set(['tier review','plan review','merge review','answer question','chat with agent','stalled']);
+// The roles that write a run record when they release an issue. A run of one of them that ends without one failed.
+const RELEASES = ['intake','plan','implement','review'];
+const QUESTION = new Set(['answer question','chat with agent']);
+const OUT = {'next-stage':'next stage','gate':'waits at a gate','question':'asked a question','chat':'asked for a chat','sent-back':'sent back to Implement'};
+const lc = s => (s||'').toLowerCase();
+
+const logEl=document.getElementById('log');
+const clock=()=>new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+function log(msg,card){ const d=document.createElement('div'); d.innerHTML='<span class="t">'+clock()+'</span>'+esc(msg); logEl.prepend(d); while(logEl.children.length>200) logEl.lastChild.remove();
+  if(card){ card.hist.push(clock()+' '+msg); if(card.hist.length>30) card.hist.shift(); } }
+
+// ---------- cards ----------
+const cards=new Map();
+let snap=null;
+const cardLabel=it=>it.taskId||it.ref||String(it.id);
+function makeCard(item){
+  const c={key:String(item.id),item,label:cardLabel(item),hist:[],x:0,y:0,slots:null,holder:null,moving:false,lockUntil:0,runAgent:null,elsewhere:false,gateFrom:null};
+  Object.defineProperty(c,'size',{get(){ return c.item.size; }});
+  Object.defineProperty(c,'pr',{get(){ return !!c.item.prUrl; }});
+  Object.defineProperty(c,'attention',{get(){ return !!(snap&&snap.attention&&snap.attention.includes(c.key)); }});
+  return c;
+}
+function homeOf(c){
+  const it=c.item, fs=lc(it.farmStatus), st=lc(it.status);
+  if(fs==='done') return shelf;
+  if((st==='done'||st==='staging review')&&(fs==='merge review'||fs==='')) return dock;
+  if(GATES.has(fs)) return gateIn;
+  if(fs==='waiting on sub-tasks') return parking;
+  if(snap&&snap.dependencyWaits&&snap.dependencyWaits[String(it.id)]) return parking;
+  if(fs==='ready'&&(!it.stage||it.stage==='intake')) return wall;
+  const role=STAGES.includes(it.nextRole)?it.nextRole:it.stage;
+  if(STAGES.includes(role)) return trays[role];
+  return wall;
+}
+function stampFor(c){
+  const from=c.gateFrom, it=c.item, fs=lc(it.farmStatus), st=lc(it.status);
+  if(!from) return null;
+  if(QUESTION.has(from)) return ['ANSWERED','#378ADD'];
+  if(from==='merge review') return (st==='staging review'||st==='done') ? ['MERGE'] : ['CHANGES','#D85A30'];
+  const ok=['approved','done'].includes(fs);
+  return ok ? ['APPROVED','#3B9E52'] : ['CHANGES','#D85A30'];
+}
+
+// ---------- snapshot handling ----------
+let first=true, lastReadAt=null;
+const runsByPid=new Map(), sleepers=new Map();
+
+function syncItems(items){
+  const seen=new Set();
+  for(const it of items){
+    const key=String(it.id); seen.add(key);
+    let c=cards.get(key);
+    if(!c){ c=makeCard(it); cards.set(key,c); place(c,homeOf(c)); if(!first) log('New on the board: '+c.label+' '+(it.name||''),c); continue; }
+    c.temp=false;
+    const old=c.item;
+    if(!first&&lc(old.farmStatus)!==lc(it.farmStatus)){ log(cardLabel(it)+': goat status '+(old.farmStatus||'none')+' → '+(it.farmStatus||'none'),c); if(GATES.has(lc(old.farmStatus))) c.gateFrom=lc(old.farmStatus); }
+    if(!first&&lc(old.status)!==lc(it.status)){ log(cardLabel(it)+': Status '+(old.status||'none')+' → '+(it.status||'none'),c); if(lc(old.farmStatus)==='merge review'&&lc(it.farmStatus)==='merge review') c.gateFrom='merge review'; }
+    c.item=it; c.label=cardLabel(it);
+  }
+  for(const [key,c] of cards){ if(seen.has(key)||c.temp||c.holder||c.moving||c.runAgent) continue; if(c.slots) c.slots.free(c); cards.delete(key); }
+}
+const lastFinished=(s,item,role,since)=>{ const l=(s.finished||[]).filter(f=>String(f.item)===String(item)&&(!role||f.role===role)&&(!since||!f.endedAt||f.endedAt>=since)); return l[l.length-1]||null; };
+
+function startRun(r,s){
+  const pid=String(r.pid);
+  let c=cards.get(String(r.item));
+  if(!c){ c=makeCard({id:r.item,taskId:r.label||String(r.item),farmStatus:'Working',name:'(not on the board read)'}); c.temp=true; cards.set(c.key,c); place(c,wall); }
+  let a=null; const sl=sleepers.get(c.key);
+  if(sl){ sleepers.delete(c.key); lounge.free(sl); sl.question=null;
+    if(sl.role===r.role){ a=sl; a.state='idle'; } else { sl.label=''; sl.state='idle'; sl.do(()=>F.leave(sl)); } }
+  const resumed=!!a, seatSlots=F.seatsFor(r.role);
+  if(!a) a=new Agent(r.role,...SPAWN);
+  a.run=r; a.label=c.label; a.paperRate=120; runsByPid.set(pid,a); c.runAgent=a;
+  const elapsed=r.startedAt?Math.max(0,Date.now()/1000-Date.parse(r.startedAt)/1000):0;
+  const what=roleName(r.role)+' '+c.label+' ('+[r.model,r.effort&&r.effort+' effort'].filter(Boolean).join(', ')+')';
+  if(first){
+    log('Running: '+what,c);
+    const seat=seatSlots.take(a); a.x=seat[0]; a.y=seat[1]; a.sit(seat); a.workStart=F.T-elapsed;
+    if(c.slots) c.slots.free(c); c.slots=null; c.holder=a; a.card=c;
+    return;
+  }
+  log((resumed||r.resumedSession?'Resumed: ':'Started: ')+what,c);
+  if(!resumed) F.sound.play('chime');
+  a.do(async()=>{
+    await until(()=>!c.holder&&!c.moving);
+    await a.goto(...stand(c)); pick(a,c);
+    const seat=seatSlots.take(a); await a.goto(seat[0],seat[1]); a.sit(seat); a.workStart=F.T-(Date.now()/1000-Date.parse(r.startedAt||new Date().toISOString())/1000);
+  });
+}
+
+function endRun(pid,a,s){
+  runsByPid.delete(pid);
+  const r=a.run, rec=lastFinished(s,r.item,r.role,r.startedAt), out=rec&&rec.outcome;
+  const c=a.card||cards.get(String(r.item));
+  const noRecord=!rec&&RELEASES.includes(r.role);
+  const tokens=rec&&rec.outputTokens?' '+fmtTok(rec.outputTokens)+' output tokens':'';
+  log('Finished: '+roleName(r.role)+' '+(c?c.label:r.label)+(out?' ('+(OUT[out]||out)+')':noRecord?' with no release record (an error, or it was stopped)':'')+tokens,c);
+  a.do(async()=>{
+    const seat=a.seat;
+    if(a.seat){ F.seatsFor(r.role).free(a); a.seat=null; }
+    a.state='idle';
+    if(noRecord&&seat){ F.smoke(seat[2]+3,seat[3]-5,7); F.addBug(c?c.label:String(r.item)); F.say(a,'uh oh…',2.5); }
+    if(out==='sent-back'){ a.slump=true; F.say(a,'sigh…',3); F.sound.play('sigh'); }
+    const card=a.card;
+    if(card){
+      let dest;
+      if(roleKey(r.role)==='retro') dest=shelf;
+      else if(out==='next-stage') dest=STAGES.includes(rec.toStage)?trays[rec.toStage]:wall;
+      else if(out==='sent-back') dest=trays.implement;
+      else if(out==='gate'||out==='question'||out==='chat') dest=gateIn;
+      else dest=homeOf(card);
+      await a.goto(...dest.stand); drop(a,card,dest);
+      card.lockUntil=rec&&rec.endedAt?Date.parse(rec.endedAt)/1000:s.now; card.runAgent=null; card.gateFrom=null;
+      if((out==='question'||out==='chat')&&!sleepers.has(card.key)){
+        const p=lounge.take(a); await a.goto(p[0],p[1]); a.state='sleep'; a.label='paused'; a.question=(snap.questions||{})[card.key]||null; sleepers.set(card.key,a); return;
+      }
+    }
+    await F.leave(a);
+  });
+}
+function syncRuns(s){
+  const live=new Map((s.runs||[]).map(r=>[String(r.pid),r]));
+  for(const [pid,r] of live) if(!runsByPid.has(pid)) startRun(r,s);
+  for(const [pid,a] of Array.from(runsByPid)) if(!live.has(pid)) endRun(pid,a,s);
+}
+function reconcile(s){
+  const runningItems=new Set(Array.from(runsByPid.values()).map(a=>String(a.run.item)));
+  for(const c of cards.values()){
+    c.elsewhere=lc(c.item.farmStatus)==='working'&&!runningItems.has(c.key);
+    if(c.holder||c.moving||c.runAgent||c.temp) continue;
+    if((s.boardReadAt||0)<=c.lockUntil) continue;
+    const h=homeOf(c); if(c.slots===h) continue;
+    if(first){ if(c.slots) c.slots.free(c); place(c,h); continue; }
+    const carrier=c.slots===gateIn?F.human:F.foreman;
+    c.moving=true;
+    carrier.do(async()=>{
+      if(!cards.has(c.key)){ c.moving=false; return; }
+      await carrier.goto(...stand(c)); pick(carrier,c);
+      const stamp=carrier===F.human?stampFor(c):null;
+      if(stamp&&stamp[0]!=='MERGE') F.stamp(stamp[0],stamp[1]);
+      const dest=homeOf(c); await carrier.goto(...dest.stand); drop(carrier,c,dest);
+      if(dest===dock&&carrier===F.human) F.merge();
+      c.gateFrom=null; c.moving=false;
+      await carrier.goto(...carrier.home);
+    });
+  }
+  for(const [key,a] of Array.from(sleepers)){
+    const c=cards.get(key), fs=c?lc(c.item.farmStatus):'';
+    if(!c||!(QUESTION.has(fs)||fs==='ready')){ sleepers.delete(key); lounge.free(a); a.label=''; a.question=null; a.state='idle'; a.do(()=>F.leave(a)); continue; }
+    a.question=QUESTION.has(fs)?((s.questions||{})[key]||null):null;
+  }
+  if(first){
+    for(const c of cards.values()){
+      if(!QUESTION.has(lc(c.item.farmStatus))||sleepers.has(c.key)) continue;
+      const rec=(s.finished||[]).filter(f=>String(f.item)===c.key&&(f.outcome==='question'||f.outcome==='chat')).pop();
+      if(!rec) continue;
+      const a=new Agent(rec.role,0,0,'paused'); const p=lounge.take(a); a.x=p[0]; a.y=p[1]; a.state='sleep'; a.question=(s.questions||{})[c.key]||null; sleepers.set(c.key,a);
+    }
+  }
+}
+function apply(s){
+  snap=s;
+  if(!s.boardReadAt){ renderStatus(s); return; }
+  const fresh=s.boardReadAt!==lastReadAt;
+  if(fresh){ lastReadAt=s.boardReadAt; syncItems(s.items||[]); }
+  syncRuns(s); reconcile(s);
+  if(first){ log('Connected. '+cards.size+' issue(s), '+runsByPid.size+' agent(s) running.'); first=false; }
+  renderStatus(s);
+}
+let connected=false;
+async function poll(){
+  try{ const res=await fetch('/api/snapshot',{cache:'no-store'}); apply(await res.json()); connected=true; }
+  catch(e){ connected=false; renderStatus(null); }
+  setTimeout(poll,2000);
+}
+
+// ---------- scoreboard ----------
+const fmtTok=n=>n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?Math.round(n/1e3)+'k':String(n);
+function scoreLines(){
+  const max=snap&&snap.limits?snap.limits.maxAgents:3;
+  const lines=['Agents '+runsByPid.size+'/'+max,'Waiting on you '+gateIn.items().length];
+  const fin=(snap&&snap.finished)||[], today=new Date().toDateString();
+  const todays=fin.filter(f=>f.endedAt&&new Date(f.endedAt).toDateString()===today);
+  const tok=todays.reduce((n,f)=>n+(f.outputTokens||0),0);
+  lines.push(Math.floor(F.T/5)%2?'Out tokens today '+fmtTok(tok):'Runs today '+todays.length);
+  const byRole={}; for(const f of fin){ if(!f.startedAt||!f.endedAt||!STAGES.includes(f.role)) continue; const m=(Date.parse(f.endedAt)-Date.parse(f.startedAt))/60000; if(m>=0) (byRole[f.role]=byRole[f.role]||[]).push(m); }
+  const roles=Object.keys(byRole);
+  if(roles.length){ const r=roles[Math.floor(F.T/4)%roles.length], l=byRole[r]; lines.push('Avg '+F.NAME[r]+' '+Math.round(l.reduce((a,b)=>a+b,0)/l.length)+'m'); }
+  else lines.push('Avg run: no data yet');
+  return lines;
+}
+
+// ---------- panels ----------
+F.init(document.getElementById('c'),{cards:()=>cards.values(),scoreLines,onSelect:()=>renderPanels()});
+const boardEl=document.getElementById('board'), infoEl=document.getElementById('info');
+function renderStatus(s){
+  document.getElementById('conn').style.background=connected?'var(--good)':'var(--bad)';
+  document.getElementById('connText').textContent=connected?'Live':'Not connected. Is live_server.py running?';
+  if(!s) return;
+  document.getElementById('boardAge').textContent=s.boardReadAt?'Board read '+Math.max(0,Math.round(s.now-s.boardReadAt))+'s ago':'Reading the board…';
+  document.getElementById('coordInfo').textContent=s.coordinatorStateFound?runsByPid.size+' agent(s) running':'Coordinator state not found (has it run on this computer?)';
+  const errs=Object.entries(s.boardErrors||{}).map(([k,v])=>k+': '+(v||[]).join(' '));
+  document.getElementById('errors').textContent=errs.length?'Board read problem. '+errs.join(' | '):'';
+}
+function renderPanels(){
+  const rows=Array.from(cards.values()).filter(c=>lc(c.item.farmStatus)!=='done').sort((a,b)=>a.label.localeCompare(b.label,undefined,{numeric:true}));
+  const done=cards.size-rows.length;
+  boardEl.innerHTML='<tr><th>Item</th><th>Size</th><th>Status</th><th>Goat status</th></tr>'+rows.map(c=>
+    '<tr class="'+(c.attention?'att':'')+'"><td><span class="sw" style="background:'+(SIZECOL[c.item.size]||NOSIZE)+'"></span>'+esc(c.label)+'</td><td>'+esc(c.item.size||'-')+'</td><td>'+esc(c.item.status||'-')+'</td><td>'+esc(c.item.farmStatus||'-')+'</td></tr>').join('')+
+    (done?'<tr><td colspan="4" style="color:var(--muted)">'+done+' Done item(s) on the library shelf</td></tr>':'');
+  const sel=F.sel;
+  if(!sel){ infoEl.textContent='Click an agent or a card.'; return; }
+  if(sel.type==='card'){ const c=sel.o, it=c.item, q=snap&&snap.questions&&snap.questions[c.key];
+    infoEl.innerHTML='<p><b>'+esc(c.label)+'</b> '+esc(it.name)+'</p>'+
+      (it.repo?'<p><span class="k">Repo</span> '+esc(it.repo)+'</p>':'')+
+      '<p><span class="k">Size</span> '+esc(it.size||'-')+' &nbsp; <span class="k">Status</span> '+esc(it.status||'-')+'</p>'+
+      '<p><span class="k">Goat status</span> '+esc(it.farmStatus||'-')+'</p>'+
+      (q?'<p><span class="k">Newest comment</span> '+esc(q)+'</p>':'')+
+      (it.nextStep?'<p><span class="k">Next step</span> '+esc(it.nextStep)+'</p>':'')+
+      (it.claim?'<p><span class="k">Claim</span> '+esc(it.claim.role)+(it.claim.live?'':' (expired)')+'</p>':'')+
+      (c.elsewhere?'<p class="k">Claimed by a session this coordinator did not start (another computer or an interactive session).</p>':'')+
+      (it.dependsOn&&it.dependsOn.length?'<p><span class="k">Depends on</span> '+esc(it.dependsOn.map(id=>{const d=cards.get(String(id));return d?d.label:id;}).join(', '))+'</p>':'')+
+      (snap&&snap.dependencyWaits&&snap.dependencyWaits[c.key]?'<p><span class="k">Dependency wait</span> '+esc(snap.dependencyWaits[c.key])+'</p>':'')+
+      (it.prUrl?'<p><a href="'+esc(it.prUrl)+'" target="_blank" rel="noopener">Pull request</a></p>':'')+
+      (it.url?'<p><a href="'+esc(it.url)+'" target="_blank" rel="noopener">Open on GitHub</a></p>':'')+
+      (c.hist.length?'<p class="k">Seen here</p>'+c.hist.slice(-8).map(h=>'<p>'+esc(h)+'</p>').join(''):'');
+  } else { const a=sel.o, r=a.run;
+    const st={walk:'Walking',work:'Working',idle:'Idle',sleep:'Paused, waits for an answer'}[a.state];
+    infoEl.innerHTML='<p><b>'+esc(roleName(a.role))+'</b>'+(a.role==='human'?' (people at the gates)':a.role==='coord'?' (carries cards the board moved)':' agent')+'</p>'+
+      '<p><span class="k">State</span> '+st+'</p>'+
+      (a.card?'<p><span class="k">Item</span> '+esc(a.card.label)+' '+esc(a.card.item.name)+'</p>':'')+
+      (a.question?'<p><span class="k">Question</span> '+esc(a.question)+'</p>':'')+
+      (r?'<p><span class="k">Model</span> '+esc(r.model||'-')+' &nbsp; <span class="k">Effort</span> '+esc(r.effort||'-')+'</p>'+
+         '<p><span class="k">Started</span> '+esc(r.startedAt?new Date(r.startedAt).toLocaleTimeString():'-')+' &nbsp; <span class="k">pid</span> '+esc(r.pid)+'</p>'+
+         (r.worktree?'<p><span class="k">Folder</span> '+esc(r.worktree)+'</p>':'')+(r.log?'<p><span class="k">Log</span> '+esc(r.log)+'</p>':''):'')+
+      (F.agents.includes(a)?'':'<p class="k">This session has ended.</p>');
+  }
+}
+setInterval(renderPanels,500);
+document.getElementById('sound').addEventListener('click',e=>{ const on=F.sound.toggle(); e.target.textContent='Sound: '+(on?'on':'off'); e.target.classList.toggle('on',on); });
+const MODES=[null,'day','dusk','night'];
+document.getElementById('time').addEventListener('click',e=>{ F.timeMode=MODES[(MODES.indexOf(F.timeMode)+1)%MODES.length]; e.target.textContent='Time: '+(F.timeMode||'real'); });
+document.getElementById('legend').innerHTML=F.legendHTML()+'<span><span class="sw" style="background:#c9c2e8"></span>worked on elsewhere</span><span><span class="sw" style="background:#E24B4A"></span>bug card: a run ended with no release record</span>';
+if(window.Floor3D&&window.THREE) Floor3D.setupToggle(document.getElementById('view'),document.getElementById('c'),document.getElementById('c3'),F);
+else { const v=document.getElementById('view'); v.textContent='3D files missing'; v.disabled=true; }
+poll();
+window.__floor={cards,runsByPid,sleepers,F};
+})();
+</script>
+</body>
+</html>
