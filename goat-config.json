@@ -26,6 +26,15 @@
       "split": true
     }
   },
+  "effort": {
+    "intake": "medium",
+    "plan": "high",
+    "implement": "high",
+    "review": "high",
+    "retro": "medium",
+    "qa": "medium",
+    "pm": "high"
+  },
   "alwaysGate": [
     "database migration",
     "authentication or permissions",

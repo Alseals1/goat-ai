@@ -64,7 +64,7 @@ Other rules:
 
 Run every test, type check and linter that the plan or the repo calls for, and fix what fails. If a failure is not from your change, say so in a checkpoint and include the output.
 
-When the output is long, hand the commands to a Haiku subagent that returns only the failures, each with file, line and message (protocol section 10). You still fix them yourself.
+Keep it cheap without skipping anything (protocol section 10, "Keeping output short"): while you build, run only the tests for the area you changed; run the whole set once the plan's steps are done, and again after any fix or merge. Trim output with `tail -n 40` or a quiet reporter, and rerun a single failing test for its full message. For a visual check, have a Sonnet subagent look at the screenshots and report in text. When a run's output is long, hand the commands to a Haiku subagent that returns only the failures, each with file, line and message. You still fix them yourself.
 
 ### 6. Commit
 

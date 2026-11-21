@@ -12,7 +12,7 @@ This repo is the **factory**. The app it builds lives in a **separate repo** (se
 | --- | --- |
 | `goat.py`, `goat/` | The CLI and the coordinator: add, claim, post, doc, summary, release, list, show, guide, setup-repo, cleanup, worktree, retro-facts, retro-save, retro-pending, retro-aggregate-save, version, update, and run, status, stop, chat. `goat/guide.md` is the guide that `goat.py guide` prints. `goat/github.py` is the only code that talks to GitHub |
 | `VERSION` | The factory version (SemVer). See [Versions and updates](#versions-and-updates) |
-| `goat-config.json` | Shared gate rules and claim leases |
+| `goat-config.json` | Shared gate rules, claim leases, the team's names, and each agent's effort level |
 | `agent-settings.json` | Allow and deny rules for the headless agents the coordinator starts. They may use `goat.py`, `gh stack` and read-only `gh pr` commands. They may not merge, call `gh api`, `gh issue` or `gh label`, force-push, or build and release the app |
 | `skills/goat/` | General skill: runs `goat.py guide`, then uses the CLI |
 | `skills/goat-board/` | Board status skill, and `protocol.md`: the rules every role skill follows |
@@ -342,6 +342,14 @@ The coordinator starts the agents for you: every 15 minutes it reads each projec
    `--loop-count N` stops after N turns, `--loop-interval S` sets the seconds between turns, `--once` is one turn, `--delay S` waits before the first turn. While it waits, press `r` to run a turn now.
 5. Between turns it checks its agents every 15 seconds. When one ends, it reads only that issue and starts its next agent at once, within the same limits. The log shows `Finished: ...` and then `Started: ...` or `Not starting ...: <reason>`.
 6. `python3 ~/.goat-ai/goat.py status` shows whether the coordinator is running and lists the agents it started. `python3 ~/.goat-ai/goat.py stop` interrupts them. Logs are in `~/.goat-ai/coordinator/logs/`.
+
+### Keeping token use down
+
+Each step of an agent re-reads its whole context, so the coordinator keeps that context small:
+
+- **No MCP servers for agents.** Headless agents start with `--strict-mcp-config`, so your connectors (Notion, Monday, Box and the rest) are not loaded into them. None of the skills uses one. Your own Claude Code sessions are unchanged.
+- **Effort per role.** `effort` in `goat-config.json` sets `claude --effort` for each role. Plan, Implement, Review and the project manager run on `high`; Intake, Retro and QA on `medium`. Lower one to spend less, raise one if its work gets thin.
+- **Lean habits in the protocol** (section 10): trimmed test output, targeted tests while building with the full set before every push, and screenshots checked by a subagent.
 
 ### Is the coordinator running?
 

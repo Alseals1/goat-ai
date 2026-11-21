@@ -43,6 +43,23 @@ def model_for(role, size):
     return "opus"
 
 
+# Effort for each headless agent (`claude --effort`). The judgment-heavy roles keep "high"; the roles that summarize,
+# file findings or follow a checklist run on "medium", which thinks less and writes less. goat-config.json's "effort"
+# section overrides it per role.
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+DEFAULT_EFFORT = {"intake": "medium", "plan": "high", "implement": "high", "review": "high", RETRO_ROLE: "medium",
+                  "qa": "medium", "pm": "high"}
+
+
+def effort_for(role, shared):
+    """The effort level for a role: goat-config.json's "effort" section, else DEFAULT_EFFORT, else None (the
+    developer's own default). An unknown level in the config is ignored."""
+    chosen = ((shared or {}).get("effort") or {}).get(role)
+    if chosen in EFFORT_LEVELS:
+        return chosen
+    return DEFAULT_EFFORT.get(role)
+
+
 def attempt_key(item):
     """Identifies one state of an item. An agent that does any work changes it, so the key changes.
 

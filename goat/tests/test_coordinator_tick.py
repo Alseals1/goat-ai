@@ -95,6 +95,13 @@ class TickTests(unittest.TestCase):
         self.assertEqual(list(state["attempts"].values()), [1])
         self.assertIn("14: Copied .env.", self.logs)
 
+    def test_launches_lean_with_the_role_effort(self):
+        self.run_tick([("/code/a", item("14"))])
+        command, _ = self.popen_calls[0]
+        self.assertIn("--strict-mcp-config", command)
+        self.assertIn("--exclude-dynamic-system-prompt-sections", command)
+        self.assertEqual(command[command.index("--effort") + 1], "medium")
+
     def test_starts_a_retro_in_the_main_checkout_without_a_worktree(self):
         state = self.run_tick([], done_items=[done_item("14")])
         command, kwargs = self.popen_calls[0]

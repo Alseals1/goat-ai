@@ -7,9 +7,10 @@ Run from the repo root:
 import unittest
 from datetime import datetime, timezone
 
-from goat.choose import (REPO_SLOTS_FULL, SLOTS_FULL, attempt_key, choose_launches, choose_retros, is_slot_limit,
-                         model_for, retro_attempt_key, retro_candidates, role_slots_full)
+from goat.choose import (DEFAULT_EFFORT, REPO_SLOTS_FULL, SLOTS_FULL, attempt_key, choose_launches, choose_retros,
+                         effort_for, is_slot_limit, model_for, retro_attempt_key, retro_candidates, role_slots_full)
 from goat.board import GoatItem
+from goat.config import load_shared
 
 ME = "me"
 NOW = datetime(2026, 10, 27, 15, 0, 0, tzinfo=timezone.utc)
@@ -262,3 +263,18 @@ class ChooseRetrosTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EffortTests(unittest.TestCase):
+    def test_defaults_keep_the_judgment_roles_high(self):
+        self.assertEqual([effort_for(role, {}) for role in ("intake", "plan", "implement", "review", "retro", "qa")],
+                         ["medium", "high", "high", "high", "medium", "medium"])
+
+    def test_config_overrides_and_bad_values_are_ignored(self):
+        shared = {"effort": {"implement": "medium", "review": "loud"}}
+        self.assertEqual(effort_for("implement", shared), "medium")
+        self.assertEqual(effort_for("review", shared), "high")
+        self.assertIsNone(effort_for("retro-aggregate", shared))
+
+    def test_shipped_config_matches_the_defaults(self):
+        self.assertEqual(load_shared()["effort"], DEFAULT_EFFORT)
