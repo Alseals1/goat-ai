@@ -18,6 +18,7 @@ This repo is the **factory**. The app it builds lives in a **separate repo** (se
 | `skills/goat-board/` | Board status skill, and `protocol.md`: the rules every role skill follows |
 | `skills/goat-intake/`, `goat-plan/`, `goat-implement/`, `goat-review/` | The four role skills |
 | `skills/goat-qa/` | The QA skill: runs the app on local services in a browser and files bugs and UX or UI recommendations as backlog issues. See [QA](#qa) |
+| `skills/goat-research/` | The Research skill: researches a planned part on the public web and files sourced design proposals as backlog issues. See [Research](#research) |
 | `skills/goat-pm/` | The project manager skill (autopilot): picks which backlog issues start next. See [Autopilot](#autopilot) |
 | `goat/autopilot.py` | Autopilot: gate approvals, merges, QA after merge, and starting the PM's picks |
 | `skills/goat-retro/`, `goat-retro-aggregate/` | The retro skills: one reviews a closed issue and saves a local note; the aggregate finds patterns across notes and adds improvement issues. See [Retros](#retros) |
@@ -96,6 +97,7 @@ Every role has a first name, so a thread on an issue reads like a small team wor
 | Review | **Priya** | Sharp and fair; credits good work, then states what must change |
 | Retro | **Sam** | Reflective and honest; what to repeat, what to change, no blame |
 | QA | **Quinn** | Hands-on and skeptical; says what a first-time user would see and where they get stuck |
+| Research | **Rae** | Well-read and upbeat; brings back what players and designers say, with the link |
 | Project manager (autopilot) | **Morgan** | Organised and steady; says what starts next and why |
 | Dispatcher (the coordinator) | **Dex** | Keeps things moving; short pings that say what needs a person |
 
@@ -257,6 +259,24 @@ What it does:
 5. Saves one report with screenshots in `~/.goat-ai/qa/<repo>/<date>/report.md`, including what only a real device can check.
 
 It tests the web build, so it cannot judge haptics, native gestures or performance on a phone: the report lists those under "Needs a device pass". It runs only on local services with sample data, and never changes the project's files. The rules are in protocol section 16.
+
+## Research
+
+The Research agent (`/goat-research`, Rae, on Sonnet) finds out what would make a planned part of the project more fun, from what players, parents, teachers and designers say in public. Like QA, it is a side role: it never claims an issue. Run it in the project repo's main checkout:
+
+```sh
+/goat-research phase 3     # a roadmap phase or milestone, as the docs name it
+/goat-research 52          # one issue
+```
+
+What it does:
+1. Learns the brief from the project first: `CLAUDE.md`'s product rules and the design doc sections for the topic (audience, features in scope, what the project will never do).
+2. Asks 4 to 6 research questions and sends one subagent per question to public sources: Reddit threads, game design and gaming sites (Game Developer, GDC talks, postmortems, reviews), reviews of comparable games, and research on play and motivation.
+3. Keeps what makes a game fun on its own terms (mastery, discovery, self-expression, collections with an end) and rejects what pulls players back against their interest (random rewards, streaks, daily logins, timers, energy, leaderboards), plus anything the project's rules rule out.
+4. Files the top 5 proposals at most with `goat.py add` (never `--ready`), each with quotes and links, so they land in `stage:discovery` for you to triage. An idea that would change an approved design decision goes in the report for you to decide, not into an issue.
+5. Saves one report in `~/.goat-ai/research/<repo>/<date>-<topic>.md`, with every source.
+
+It reads public pages one at a time, never logs in or crawls, does not retry a site that refuses automated access, and never puts your project's name or code in a search. The rules are in protocol section 18.
 
 ## Autopilot
 
