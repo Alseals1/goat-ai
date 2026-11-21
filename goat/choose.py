@@ -34,11 +34,17 @@ def is_slot_limit(reason):
     return reason in [SLOTS_FULL, REPO_SLOTS_FULL] + role_reasons
 
 
+# Implement runs on Sonnet for these sizes. An M plan is written by Opus (Plan) and checked by Opus (Review), so Sonnet
+# builds it well at about half the cost; L and XL, and an issue with no size yet, stay on Opus.
+SONNET_IMPLEMENT_SIZES = ("S", "M")
+
+
 def model_for(role, size):
-    """The model for a role. Intake and retro use Sonnet. Implement depends on the size: Sonnet for S, Opus for M, L, XL, or no size yet."""
+    """The model for a role. Intake and retro use Sonnet. Implement depends on the size: Sonnet for S and M, Opus for L,
+    XL, or no size yet."""
     if role in ("intake", RETRO_ROLE):
         return "sonnet"
-    if role == "implement" and size == "S":
+    if role == "implement" and size in SONNET_IMPLEMENT_SIZES:
         return "sonnet"
     return "opus"
 

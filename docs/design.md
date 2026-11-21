@@ -7,7 +7,7 @@ G.O.A.T. AI keeps every task in a GitHub Issue. Agents carry a task through four
 1. A task is an issue. Issues in `stage:discovery` (the backlog) are ignored. A person assigns the issue and labels it `stage:intake` and `goat:ready`.
 2. **Intake** (Sonnet) restates the task, proposes a size, and stops at `goat:tier-review`.
 3. **Plan** (Opus) writes a spec and a plan. For sizes M, L and XL, or when the plan touches an always-gate area (a database migration, auth or permissions, CI or deploy settings, a new dependency), it stops at `goat:plan-review`. An XL task is split instead of planned.
-4. **Implement** (Sonnet for S, Opus for larger) works in its own git worktree on a `goat/<number>-<slug>` branch and opens a draft PR. Size L is built as stacked PRs.
+4. **Implement** (Sonnet for S and M, Opus for L and XL) works in its own git worktree on a `goat/<number>-<slug>` branch and opens a draft PR. Size L is built as stacked PRs.
 5. **Review** (Opus, in a fresh session) reads the diff and the CI checks. It either sends fixes back to Implement (at most two rounds, then it asks a question) or marks the PR ready and stops at `goat:merge-review`.
 6. **A person merges.** The coordinator notices and moves the issue to `stage:staging`.
 7. **A person closes the issue.** The coordinator then runs a retro, removes the local worktrees and branches, and sets `goat:done`. Now and then an aggregate retro turns many retro notes into improvement issues.
