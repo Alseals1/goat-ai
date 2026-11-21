@@ -4,7 +4,9 @@ Captured 2026-11-02 from the owner. Nothing here is planned or built yet. Idea 1
 
 ## Ideas
 
-### 1. Label Doctor (priority 1)
+### 1. Label Doctor (priority 1, first version built 2026-11-21)
+
+**Status.** Built: `goat.py doctor` and `goat.py list --problems` (read-only; see the README, section Label Doctor, and `docs/design.md`). Still open: the coordinator's per-turn check with one comment and notification per problem, the `setup-repo --check` hook, and `--fix`.
 
 **Why.** Operating the factory means editing labels by hand, and it is easy to get them slightly wrong. The first hands-on release made this clear. Two mistakes happened in a row, and both times the factory did nothing and said nothing:
 - A task was moved to `stage:intake` and assigned, but `goat:ready` was never added. The factory only looks at issues that have a `goat:` label, so it ignored the task.

@@ -12,7 +12,8 @@ Use this inside a project repo. The board is that repo's GitHub Issues. This ski
 
 1. Check that `~/.goat-ai/goat.py` exists (protocol section 1). If it does not, say so and stop.
 2. Run `python3 ~/.goat-ai/goat.py list --mine`. Each line shows the issue number, title, stage, status, size and the next step. Lines that wait for a person come first.
-3. Present the lines as a compact table:
+3. Run `python3 ~/.goat-ai/goat.py list --problems --mine`. If it lists any issue, run `python3 ~/.goat-ai/goat.py doctor` and, after the table, tell the developer each problem and its fix. Never change a label yourself.
+4. Present the lines from step 2 as a compact table:
 
    | Issue | Title | Stage | Status | Next |
    | --- | --- | --- | --- | --- |

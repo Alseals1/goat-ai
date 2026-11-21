@@ -22,7 +22,7 @@ import re
 import sys
 
 from goat import board as fb
-from goat import autopilot, chat, coordinator, exit_codes, health, retro_facts, retros, setup, team, views, views_json
+from goat import autopilot, chat, coordinator, doctor, exit_codes, health, retro_facts, retros, setup, team, views, views_json
 from goat.actions import POST_KINDS, Goat, GoatError, refuse_ready_when_headless, utc_now
 from goat.cleanup import clean_up
 from goat.config import REPO_ROOT, ConfigError, load_board, load_shared, main_checkout, project_env
@@ -90,6 +90,8 @@ def non_negative_int(text):
 
 def command_list(args):
     goat = make_goat(args)
+    if args.problems:
+        return list_problems(goat, args)
     user_id = goat.user["id"] if args.mine else None
     items = views.goat_items(goat.client, goat.board, user_id)
     if args.json:
@@ -99,6 +101,37 @@ def command_list(args):
         print("No G.O.A.T. issues.")
     for line in views.list_lines(items, utc_now()):
         print(line)
+
+
+def list_problems(goat, args):
+    """`list --problems`: only the issues the Label Doctor finds a problem with, yours and unassigned (with --mine,
+    only yours)."""
+    items = views.all_items(goat.client, goat.board)
+    if args.mine:
+        items = [item for item in items if item.is_owned_by(goat.user["id"])]
+    found, _ = doctor.check(items, goat.user["id"], utc_now())
+    if args.json:
+        print_json({"version": views_json.VERSION, "items": views_json.problems_data(found, utc_now())})
+        return
+    if not found:
+        print("No issues with label problems.")
+    for line in doctor.problem_lines(found):
+        print(line)
+    if found:
+        print("\nRun `goat.py doctor` for each problem and its fix.")
+
+
+def command_doctor(args):
+    """The Label Doctor: issues whose labels G.O.A.T. cannot act on, with the fix. Reads only. Exit code 1 when it
+    finds a problem."""
+    goat = make_goat(args)
+    found, checked = doctor.check(views.all_items(goat.client, goat.board), goat.user["id"], utc_now())
+    if args.json:
+        print_json(views_json.doctor_data(goat.board["repo"], found, checked, utc_now()))
+    else:
+        for line in doctor.report_lines(found, checked):
+            print(line)
+    return 1 if found else 0
 
 
 def command_show(args):
@@ -508,7 +541,12 @@ def build_parser():
     list_command = add("list", command_list, "G.O.A.T. issues of the project's repo", GOAT + " list --mine --json",
                        item=False)
     list_command.add_argument("--mine", action="store_true", help="only issues assigned to you")
+    list_command.add_argument("--problems", action="store_true",
+                              help="only issues with label problems, yours and unassigned (see doctor)")
     list_command.add_argument("--json", action="store_true", help=json_help)
+    add("doctor", command_doctor,
+        "find issues whose labels G.O.A.T. cannot act on, and say the fix (reads only; exit code 1 on a problem)",
+        GOAT + " doctor", item=False).add_argument("--json", action="store_true", help=json_help)
     show_command = add("show", command_show, "one issue as Markdown: labels, description, doc, comments",
                        GOAT + " show 14 --brief")
     show_command.add_argument("--json", action="store_true", help=json_help)
