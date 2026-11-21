@@ -212,6 +212,13 @@ Rules for subagents:
 - **Read a doc by the section it names.** When `CLAUDE.md` or an issue says "read section 4.15 of `TECHNICAL_ARCHITECTURE.md`", read that section, not the file.
 - **Fewer, bigger steps.** Put independent reads in one command, or in parallel tool calls in one step, instead of one small read per step.
 
+**Keeping output short.** Command output and images stay in context the same way, and they were the biggest part of long runs:
+
+- **Short command output.** Pipe tests, builds, linters and end-to-end runs through `tail -n 40`, or use the runner's quiet or dot reporter. When something fails, rerun only the failing test to read its full message. Look at a diff with `--stat` first, then file by file. Never print a lock file, a build log or a whole test log.
+- **Saved output is searched, not read.** When a tool result says the output was saved to a file, `grep` or `tail` that file for what you need. Never read it whole.
+- **Screenshots go to a subagent.** An image stays in your context for the rest of the run. To check how screens look, have a Sonnet subagent open the screenshots and report in text against the criteria you paste into its prompt. Open one yourself only to confirm a specific finding.
+- **Targeted tests while you build, the full set once.** After each change, run the tests for the area you touched. Run the whole set the plan or repo calls for (tests, type check, lint, end-to-end) once the change is complete, and again after any fix or merge. Nothing is pushed without a full green run.
+
 ## 11. Safety rules
 
 **Scope.** Work only on issues assigned to this developer, and only in that issue's repo.

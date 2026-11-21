@@ -55,7 +55,7 @@ from goat.board import DONE, DONE_STATUS, STAGES, STALLED, GoatItem, label_chang
 from goat.board import MERGE_REVIEW as fb_MERGE_REVIEW, PLAN_REVIEW as fb_PLAN_REVIEW, STAGING as fb_STAGING, \
     TIER_REVIEW as fb_TIER_REVIEW
 from goat.choose import (DEFAULT_RETRO_CAP, RETRO_ROLE, SLOTS_FULL as SLOTS_FULL_TEXT, STAGE_PRIORITY, choose_launches,
-                         choose_retros, is_slot_limit, retro_candidates, MAX_ATTEMPTS, stalled_items)
+                         choose_retros, effort_for, is_slot_limit, retro_candidates, MAX_ATTEMPTS, stalled_items)
 from goat.cleanup import clean_up
 from goat.early_ticks import EarlyTicks, TickResult
 from goat.config import (COORDINATOR_STATE_FILE, REPO_ROOT, ConfigError, board_env_names, load_board, load_shared,
@@ -73,6 +73,11 @@ STATE_FILE = COORDINATOR_STATE_FILE
 STATE_DIR = os.path.dirname(STATE_FILE)
 LOG_DIR = os.path.join(STATE_DIR, "logs")
 AGENT_SETTINGS = os.path.join(REPO_ROOT, "agent-settings.json")
+# Headless agents load no MCP servers: none of the skills uses one (QA drives Playwright from the shell), and the
+# developer's servers and connectors added about 14,000 tokens to every step of every run. The per-machine parts of the
+# system prompt (folder, git status) move into the first message, so agents in different worktrees share one cached
+# system prompt.
+LEAN_FLAGS = ["--strict-mcp-config", "--exclude-dynamic-system-prompt-sections"]
 
 DEFAULT_MAX_AGENTS = 3
 DEFAULT_INTERVAL_SECONDS = 900
@@ -553,7 +558,10 @@ def start_agent(launch, worktree):
         "--permission-prompts", "none",
         "--settings", AGENT_SETTINGS,
         "--output-format", "json",
-    ]
+    ] + LEAN_FLAGS
+    effort = effort_for(launch["role"], load_shared())
+    if effort:
+        command += ["--effort", effort]
     with open(log_path, "w") as log_file:
         # A new session (process group) keeps agents running when the coordinator gets Ctrl-C.
         process = subprocess.Popen(
