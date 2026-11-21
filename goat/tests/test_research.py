@@ -3,6 +3,7 @@
 import os
 import unittest
 
+from goat import board as fb
 from goat import cli, team
 from goat.config import REPO_ROOT, load_shared
 
@@ -20,6 +21,14 @@ class ResearchAgentTests(unittest.TestCase):
         self.assertIn("name: goat-research\n", text)
         self.assertIn("model: sonnet\n", text)
         self.assertIn("goat.py protocol --sections 1,10,11,18", text)
+
+    def test_skill_talks_to_the_project_manager_and_files_with_the_marker(self):
+        text = read(SKILL)
+        self.assertIn("Talk it over with the project manager", text)
+        self.assertIn("goat-pm/SKILL.md", text)
+        # The template's first body line is exactly the marker the autopilot checks.
+        self.assertIn("--file - <<'EOF'\n   {}\n   Depends on:".format(fb.RESEARCH_MARKER), text)
+        self.assertIn("Never pass `--priority`", text)
 
     def test_protocol_section_18_holds_the_rules(self):
         section = cli.protocol_sections(read(cli.PROTOCOL_PATH), [18])

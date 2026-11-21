@@ -321,6 +321,9 @@ class BacklogTests(unittest.TestCase):
             raw_item(41, stage="discovery", goat_status="", assignees=(), priority="next", body="Depends on: nothing"),
             raw_item(42, stage="discovery", goat_status="", assignees=("you",)),
             raw_item(43, stage="discovery", goat_status="", assignees=("me",), priority="first"),
+            raw_item(44, stage="discovery", goat_status="", assignees=(), body=fb.RESEARCH_MARKER + "\nAn idea"),
+            raw_item(45, stage="discovery", goat_status="", assignees=(), priority="later",
+                     body=fb.RESEARCH_MARKER + "\nAn approved idea"),
             raw_item(31, stage="implement", goat_status="working", claim="implement|s", expires="2026-11-12T13:00:00Z"),
             raw_item(30, stage="plan", goat_status="answer-question"),
             raw_item(29, stage="intake", goat_status="tier-review", assignees=("you",)),
@@ -328,9 +331,10 @@ class BacklogTests(unittest.TestCase):
 
     def test_ready_and_blocked(self):
         ready, blocked = autopilot.backlog(self.client, items_of(self.client), "me")
-        self.assertEqual([item.id for item in ready], ["43", "41"])
+        self.assertEqual([item.id for item in ready], ["43", "41", "45"])
         self.assertEqual([(item.id, reason) for item, reason in blocked],
-                         [("40", "it depends on #31, still open"), ("42", "it is assigned to you")])
+                         [("40", "it depends on #31, still open"), ("42", "it is assigned to you"),
+                          ("44", "it is a research proposal: it waits for the owner to give it a prio: label")])
 
     def test_in_flight_leaves_out_issues_waiting_on_a_person(self):
         self.assertEqual([item.id for item in autopilot.in_flight(items_of(self.client), "me")], ["31"])

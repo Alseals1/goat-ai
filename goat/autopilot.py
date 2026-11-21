@@ -441,6 +441,8 @@ def candidate_problem(item, user_id, state_of):
     others = [login for login in item.owner_ids if login.lower() != str(user_id).lower()]
     if others:
         return "it is assigned to {}".format(", ".join(others))
+    if fb.RESEARCH_MARKER in (item.body or "") and not item.priority.strip():
+        return "it is a research proposal: it waits for the owner to give it a prio: label"
     waiting = open_dependencies(item.body, state_of)
     if waiting:
         return "it depends on {}, still open".format(", ".join("#" + number for number in waiting))

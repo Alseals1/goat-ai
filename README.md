@@ -274,8 +274,11 @@ What it does:
 1. Learns the brief from the project first: `CLAUDE.md`'s product rules and the design doc sections for the topic (audience, features in scope, what the project will never do).
 2. Asks 4 to 6 research questions and sends one subagent per question to public sources: Reddit threads, game design and gaming sites (Game Developer, GDC talks, postmortems, reviews), reviews of comparable games, and research on play and motivation.
 3. Keeps what makes a game fun on its own terms (mastery, discovery, self-expression, collections with an end) and rejects what pulls players back against their interest (random rewards, streaks, daily logins, timers, energy, leaderboards), plus anything the project's rules rule out.
-4. Files the top 5 proposals at most with `goat.py add` (never `--ready`), each with quotes and links, so they land in `stage:discovery` for you to triage. An idea that would change an approved design decision goes in the report for you to decide, not into an issue.
-5. Saves one report in `~/.goat-ai/research/<repo>/<date>-<topic>.md`, with every source.
+4. **Talks it over with the project manager.** Before filing, Rae discusses the proposals with Morgan (an Opus subagent that reads the PM skill, the roadmap and the backlog): where each fits, which issues it must wait for, and a suggested priority. Up to two rounds; any disagreement is recorded with both views.
+5. Files the top 5 proposals at most with `goat.py add` (never `--ready`), each with quotes, links, Morgan's view and a `Depends on` line, so they land in `stage:discovery` for you to triage. An idea that would change an approved design decision goes in the report for you to decide, not into an issue.
+6. Saves one report in `~/.goat-ai/research/<repo>/<date>-<topic>.md`, with every source.
+
+**You approve with a label.** Proposals are filed with no priority. In an autopilot repo the coordinator never starts one until you give it a `prio:` label (for example the priority Morgan suggested), so nothing from the web gets built before you agree to it.
 
 It reads public pages one at a time, never logs in or crawls, does not retry a site that refuses automated access, and never puts your project's name or code in a search. The rules are in protocol section 18.
 
