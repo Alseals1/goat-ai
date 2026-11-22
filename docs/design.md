@@ -94,6 +94,8 @@ The coordinator can post into a Discord channel through a webhook (`goat/discord
 - **Certificates.** Verification is never turned off. When Python has no root certificates of its own (the python.org build on macOS), the system bundle is used.
 - **Tests.** The test package points the env file at an empty temporary folder, so no test can read the real settings or send a real message.
 
+**The research channel.** `DISCORD_WEBHOOK_RESEARCH`, a second webhook for a channel of its own, carries the Research agent's talk with the project manager. The Research agent posts each turn with `goat.py research-say --as research|pm`: the agent never sees the URL, because `goat.py` reads the env file in its own process, and the deny rules still keep agents away from the file and from discord.com. Long turns are split at paragraph breaks into Discord-sized messages. With no research webhook, `research-say` posts nothing and exits 0, so a research run never fails on Discord.
+
 ## Approving from Discord
 
 The owner types `start 9`, `approve 9`, `send back 9: note` or `answer 9: text` in a private channel. `goat/inbox.py` reads it (REST polling with the bot token, every 15 seconds while the coordinator waits between turns: no gateway connection and no libraries) and the coordinator makes the label change.

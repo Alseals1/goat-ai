@@ -135,6 +135,19 @@ The team can post into a private Discord channel, each teammate under their own 
    ```
 4. Check it with `python3 ~/.goat-ai/goat.py discord-test`. It posts one message as Dex. `discord-test --as plan` posts as Theo.
 
+### The research channel
+
+Rae and Morgan's discussion about each research run (see [Research](#research)) can go to a channel of its own, so it does not crowd your dispatch channel.
+
+1. Create a private text channel, for example `#research`.
+2. In that channel: **Edit Channel, Integrations, Webhooks, New Webhook, Copy Webhook URL**.
+3. Add it to `~/.goat-ai/discord.env`:
+   ```
+   DISCORD_WEBHOOK_RESEARCH=the-url
+   ```
+
+The Research agent posts each turn with `goat.py research-say`: Rae opens with her draft proposals, Morgan answers with where each fits and a suggested priority, Rae replies, and Rae closes with the issues she filed. Without this line nothing is posted and the research runs as before. The URL is a secret like the dispatch one: agents cannot read the file, and `goat.py` never prints it.
+
 ### Approving from Discord
 
 Type in a private **#approvals** channel (only you and the bot can see it):
@@ -274,7 +287,7 @@ What it does:
 1. Learns the brief from the project first: `CLAUDE.md`'s product rules and the design doc sections for the topic (audience, features in scope, what the project will never do).
 2. Asks 4 to 6 research questions and sends one subagent per question to public sources: Reddit threads, game design and gaming sites (Game Developer, GDC talks, postmortems, reviews), reviews of comparable games, and research on play and motivation.
 3. Keeps what makes a game fun on its own terms (mastery, discovery, self-expression, collections with an end) and rejects what pulls players back against their interest (random rewards, streaks, daily logins, timers, energy, leaderboards), plus anything the project's rules rule out.
-4. **Talks it over with the project manager.** Before filing, Rae discusses the proposals with Morgan (an Opus subagent that reads the PM skill, the roadmap and the backlog): where each fits, which issues it must wait for, and a suggested priority. Up to two rounds; any disagreement is recorded with both views.
+4. **Talks it over with the project manager.** Before filing, Rae discusses the proposals with Morgan (an Opus subagent that reads the PM skill, the roadmap and the backlog): where each fits, which issues it must wait for, and a suggested priority. Up to two rounds; any disagreement is recorded with both views. With a research channel set up (see [Discord](#discord)), you can follow the talk there, each turn signed by Rae or Morgan.
 5. Files the top 5 proposals at most with `goat.py add` (never `--ready`), each with quotes, links, Morgan's view and a `Depends on` line, so they land in `stage:discovery` for you to triage. An idea that would change an approved design decision goes in the report for you to decide, not into an issue.
 6. Saves one report in `~/.goat-ai/research/<repo>/<date>-<topic>.md`, with every source.
 

@@ -318,6 +318,24 @@ def command_discord_check(args):
     print("All set. Start the coordinator and type `help` in #approvals.")
 
 
+def command_research_say(args):
+    """Posts one turn of the Research agent's talk with the project manager to the research Discord channel, signed by
+    Rae or Morgan. With no research webhook set up it posts nothing and still succeeds, so a research run goes on."""
+    text = read_file(args.file).strip()
+    if not text:
+        raise GoatError("The message is empty.")
+    webhook = discord_client.from_settings(discord_client.settings(), discord_client.RESEARCH_WEBHOOK_KEY)
+    if webhook is None:
+        print("No {} in {}: nothing posted. See the README, section Discord.".format(
+            discord_client.RESEARCH_WEBHOOK_KEY, discord_client.ENV_FILE))
+        return 0
+    username = team.signature(load_shared(), args.role)
+    parts = discord_client.split_message(text)
+    for part in parts:
+        webhook.send(username, part)
+    print("Posted {} message(s) to the research channel as {}.".format(len(parts), username))
+
+
 def command_version(args):
     for line in version_lines():
         print(line)
@@ -655,6 +673,12 @@ def build_parser():
     add("discord-check", command_discord_check,
         "check the Discord reply setup (token, #approvals, Message Content Intent). Sends nothing",
         GOAT + " discord-check", item=False)
+    research_say = add("research-say", command_research_say,
+                       "Research agent only: post one turn of its talk with the project manager to the research Discord channel",
+                       heredoc("research-say --as research"), item=False)
+    research_say.add_argument("--as", dest="role", required=True, choices=("research", "pm"),
+                              help="who says it: research (Rae) or pm (Morgan)")
+    research_say.add_argument("--file", required=True, help="Markdown file, or - for stdin")
     add("version", command_version, "print G.O.A.T. version and commit", GOAT + " version", item=False)
     add("update", command_update, "move this G.O.A.T. install to the newest release tag", GOAT + " update", item=False)
     add("rules", command_rules, "print the shared gates and leases (goat-config.json)", GOAT + " rules", item=False)
