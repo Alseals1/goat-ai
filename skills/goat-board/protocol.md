@@ -234,6 +234,7 @@ Rules for subagents:
 - Run anything against a remote database or hosted service, or build, publish or release the app: no `supabase link`, `supabase db push`, `eas build`, `eas submit`, `eas update`, `fastlane`, deploy commands, or production or staging URLs. Use local services with sample data.
 - Print, copy or post a token or other secret from `.env`, or run `gh auth token`.
 - Run `goat.py run`, `goat.py stop` or `goat.py update`: only a person starts and stops the coordinator and updates the install.
+- Control a terminal workspace: no `herdr` commands, and never type into another pane or start another agent. The `goat-herdr` skill is for the developer's own interactive session only.
 - Create or push a git tag. Releases are a person's job.
 - Use `--ready` with `goat.py add`. You may add an issue, but a person decides when new work starts.
 
