@@ -35,6 +35,8 @@ Usage (from any folder; goat.py commands are in goat/cli.py):
   python3 ~/.goat-ai/goat.py run --delay 60         # wait 60 seconds, then loop
   python3 ~/.goat-ai/goat.py status                 # agents it started
   python3 ~/.goat-ai/goat.py stop                   # interrupt those agents
+  python3 ~/.goat-ai/goat.py pause [--stop]         # start nothing new until resume (goat/pause.py)
+  python3 ~/.goat-ai/goat.py resume
 
 While it waits between turns, press r to run a turn now.
 """
@@ -50,7 +52,7 @@ import time
 from datetime import datetime, timezone
 
 from goat import discord as discord_client
-from goat import autopilot, health, inbox, messenger, team, worktrees
+from goat import autopilot, health, inbox, messenger, pause, team, worktrees
 from goat.board import DONE, DONE_STATUS, STAGES, STALLED, GoatItem, label_changes, same_label
 from goat.board import MERGE_REVIEW as fb_MERGE_REVIEW, PLAN_REVIEW as fb_PLAN_REVIEW, STAGING as fb_STAGING, \
     TIER_REVIEW as fb_TIER_REVIEW
@@ -99,6 +101,10 @@ current_beat = None
 # Reads the owner's commands from Discord while the coordinator waits (goat/inbox.py). None unless set up in
 # command_run: not in a dry run, and not when Discord replies are off or not configured.
 current_inbox = None
+
+# Notices a pause or a resume made from another process (goat.py pause, goat.py resume) while the coordinator waits.
+# None except inside run_ticks.
+current_watch = None
 
 
 def log(message):
@@ -220,6 +226,83 @@ def prune_finished(state, announce=None):
             announce(run, exit_code)
     state["runs"] = still_running
     return finished
+
+
+# ---------- Pause (goat/pause.py) ----------
+
+def paused():
+    """The pause info while the owner has paused the coordinator, else None."""
+    return pause.read()
+
+
+class PauseWatch:
+    """Remembers whether the coordinator was paused, so the wait can log a new pause and run a turn on a resume."""
+
+    def __init__(self, read=paused):
+        self.read = read
+        self.was_paused = read() is not None
+
+    def check(self):
+        """Returns "paused", "resumed" or None (no change since the last check or sync)."""
+        now_paused = self.read() is not None
+        change = None
+        if now_paused and not self.was_paused:
+            change = "paused"
+        elif self.was_paused and not now_paused:
+            change = "resumed"
+        self.was_paused = now_paused
+        return change
+
+    def sync(self):
+        """After a turn: the turn already acted on the current state, so it is no change."""
+        self.was_paused = self.read() is not None
+
+
+def interrupt_runs(state):
+    """Interrupts every agent in the state (SIGINT to its process group). Returns how many were interrupted."""
+    prune_finished(state)
+    interrupted = 0
+    for run in state["runs"]:
+        # SIGINT lets the agent end its turn. Its claim then expires and the issue shows as stale.
+        try:
+            os.killpg(run["pid"], signal.SIGINT)
+            log("Interrupted {} {} (pid {}).".format(run["role"], run["item"], run["pid"]))
+            interrupted += 1
+        except OSError as error:
+            log("Could not interrupt pid {}: {}".format(run["pid"], error))
+    return interrupted
+
+
+# How the owner resumes or stops, in the words of where they typed the pause.
+HINTS = {"Discord": ("Type `resume` to start again.", "type `stop` to interrupt them"),
+         "a terminal": ("Run `goat.py resume` to start again.", "run `goat.py pause --stop` to interrupt them")}
+
+
+def pause_reply(kind, state, by):
+    """Does a pause, stop or resume for the owner. Returns (text for the owner, True when a turn should run now).
+
+    by: "Discord" or "a terminal", for the log and the wording of the reply."""
+    resume_hint, stop_hint = HINTS[by]
+    if kind == "resume":
+        if pause.resume():
+            log("Resumed by the owner ({}).".format(by))
+            return "resumed. I start work again now.", True
+        return "I was not paused, so nothing changed.", False
+    info, already = pause.pause(by)
+    if not already:
+        log("Paused by the owner ({}). No new agent starts until resume.".format(by))
+    when = pause.since_text(info)
+    head = "I was already paused{}.".format(" (" + when + ")" if when else "") if already else "paused."
+    if kind == "stop":
+        count = interrupt_runs(state)
+        save_state(state)
+        return "{} I interrupted {} running agent(s), and no new agent starts. {}".format(
+            head, count, resume_hint), False
+    running = len(state["runs"])
+    text = "{} No new agent starts, and nothing is approved or merged.".format(head)
+    if running:
+        text += " {} agent(s) still running will finish their step: {}.".format(running, stop_hint)
+    return text + " " + resume_hint, False
 
 
 # ---------- GitHub ----------
@@ -432,8 +515,12 @@ def build_inbox(config):
         channel["id"] = approvals_channel(bot, values)
         return channel["id"]
 
+    def control(kind, state):
+        return inbox.Outcome(*pause_reply(kind, state, "Discord"))
+
     return inbox.Inbox(bot, owner_id, resolve, lambda number: locate_item(config, number),
-                       lambda: waiting_items(config), reply, save_state, shared, owner, log)
+                       lambda: waiting_items(config), reply, save_state, shared, owner, log,
+                       control=control, pause_line=lambda: pause.status_line(paused()))
 
 
 def advance_merged_boards(boards, user_id, dry_run, webhook=None, owner_name="", config=None, state=None):
@@ -973,6 +1060,10 @@ def tick(config, state, dry_run):
     webhook = None if dry_run else discord_webhook(config)
     finished = prune_finished(state, activity_announcers(config, webhook)[1])
     finish_autopilot_runs(config, state, finished, dry_run, webhook)
+    if paused() is not None:
+        log("Paused: nothing starts, no gate is approved and nothing merges. {} agent(s) running. "
+            "Resume with `goat.py resume` or `resume` in Discord.".format(len(state["runs"])))
+        return TickResult(slot_skipped=False, github_failed=False)
     repos = check_repos(config)
     candidates, user_id, boards, github_failed = read_boards(repos)
     if candidates is None:
@@ -1083,6 +1174,8 @@ def run_one_tick(config, state, dry_run):
         current_beat.turn_started()
     result = tick(config, state, dry_run)
     save_state(state)
+    if current_watch is not None:
+        current_watch.sync()
     if current_beat:
         current_beat.turn_done(result.github_failed)
     return result
@@ -1097,7 +1190,13 @@ def start_follow_ups(config, state, dry_run, early):
     """
     webhook = None if dry_run else discord_webhook(config)
     finished = prune_finished(state, activity_announcers(config, webhook)[1])
-    if finish_autopilot_runs(config, state, finished, dry_run, webhook):
+    started_work = finish_autopilot_runs(config, state, finished, dry_run, webhook)
+    if paused() is not None:
+        # No follow-up and no early turn: the next agents wait for the resume.
+        if finished:
+            save_state(state)
+        return
+    if started_work:
         # The project manager started new work: a full turn starts its agents and the other follow-ups at once.
         log("Turn triggered by the autopilot: new work started.")
         early.after_tick(run_one_tick(config, state, dry_run))
@@ -1136,6 +1235,12 @@ def wait_until(deadline, config, state, dry_run, keys, early):
         key = keys.wait_for_key(min(FOLLOW_UP_POLL_SECONDS, remaining))
         if current_beat:
             current_beat.alive()
+        change = current_watch.check() if current_watch is not None else None
+        if change == "paused":
+            log("Paused: no new agent starts until resume.")
+        elif change == "resumed":
+            log("Resumed: running a turn now.")
+            early.after_tick(run_one_tick(config, state, dry_run))
         if current_inbox is not None and current_inbox.is_due():
             if current_inbox.poll(state):
                 log("Turn triggered by a Discord message.")
@@ -1157,7 +1262,9 @@ def run_ticks(config, dry_run, count, interval, keys):
 
     With a `count`, it logs how many scheduled turns remain after each scheduled turn.
     """
+    global current_watch
     early = EarlyTicks()
+    current_watch = PauseWatch()
     ticks_done = 0
     while True:
         state = load_state()
@@ -1197,12 +1304,15 @@ def command_run(args):
     log(aggregate_text(config["coordinator"]))
     if autopilot.text_line(pilot_settings(config)):
         log(autopilot.text_line(pilot_settings(config)))
-    global current_beat, current_inbox
+    if paused() is not None:
+        log(pause.status_line(paused()))
+    global current_beat, current_inbox, current_watch
     previous_handler = None
     if not args.dry_run:
         current_inbox = build_inbox(config)
         if current_inbox is not None:
-            log("Discord inbox: listening for your commands (approve, send back, answer, status).")
+            log("Discord inbox: listening for your commands (start, approve, send back, answer, status, pause, stop, "
+                "resume).")
         current_beat = health.Beat(os.getpid(), interval, path=health.HEARTBEAT_FILE)
         # A stop signal ends the run like Ctrl-C, so the heartbeat says "stopped on purpose".
         previous_handler = signal.signal(signal.SIGTERM, raise_keyboard_interrupt)
@@ -1219,6 +1329,7 @@ def command_run(args):
         log("Coordinator stopped. Agents it started keep running. Use `goat.py stop` to interrupt them.")
     finally:
         current_inbox = None
+        current_watch = None
         if current_beat:
             current_beat.stopped()
             current_beat = None
@@ -1232,6 +1343,8 @@ def raise_keyboard_interrupt(signum, frame):
 def command_status(args):
     state_name, text = health.assess(health.read(health.HEARTBEAT_FILE), health.utc_now())
     print("Coordinator: " + text)
+    if paused() is not None:
+        print(pause.status_line(paused()))
     if os.path.exists(CONFIG_FILE):
         # Not load_config: status also works before any repo is in the config.
         with open(CONFIG_FILE) as f:
@@ -1251,13 +1364,38 @@ def command_status(args):
 
 def command_stop(args):
     state = load_state()
-    prune_finished(state)
-    for run in state["runs"]:
-        # SIGINT lets the agent end its turn. Its claim then expires and the issue shows as stale.
-        try:
-            os.killpg(run["pid"], signal.SIGINT)
-            log("Interrupted {} {} (pid {}).".format(run["role"], run["item"], run["pid"]))
-        except OSError as error:
-            log("Could not interrupt pid {}: {}".format(run["pid"], error))
+    interrupt_runs(state)
     save_state(state)
+
+
+def refuse_pause_when_headless(environ):
+    """Only a person pauses or resumes the coordinator. A headless agent that resumed it would undo the owner's stop."""
+    if environ.get("GOAT_HEADLESS") == "1":
+        sys.exit("Agents may not pause or resume the coordinator. Only a person does that.")
+
+
+def coordinator_running():
+    state_name, _ = health.assess(health.read(health.HEARTBEAT_FILE), health.utc_now())
+    return state_name in (health.RUNNING, health.STALE)
+
+
+def command_pause(args):
+    refuse_pause_when_headless(os.environ)
+    state = load_state()
+    prune_finished(state)
+    text, _ = pause_reply("stop" if args.stop else "pause", state, "a terminal")
+    print(text[:1].upper() + text[1:])
+    if not coordinator_running():
+        print("The coordinator is not running now. It stays paused when you start it, until you resume.")
+
+
+def command_resume(args):
+    refuse_pause_when_headless(os.environ)
+    if not pause.resume():
+        print("The coordinator was not paused. Nothing changed.")
+        return
+    if coordinator_running():
+        print("Resumed. The coordinator runs a turn within {} seconds.".format(FOLLOW_UP_POLL_SECONDS))
+    else:
+        print("Resumed. The coordinator is not running now: start it with `goat.py run`.")
 
