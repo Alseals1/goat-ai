@@ -7,7 +7,7 @@ issue and claims nothing.
 `chat` is different: its --session picks an older run of the item to resume.
 Text inputs (posts, doc sections, handoffs, summaries) are Markdown files, so no shell quoting is needed.
 
-`run`, `status` and `stop` are the coordinator (goat/coordinator.py). They work from any folder and do not
+`run`, `status`, `stop`, `pause` and `resume` are the coordinator (goat/coordinator.py). They work from any folder and do not
 read the current folder's .env: `run` reads ~/.goat-ai/config.json and each configured repo's .env.
 
 `guide` prints goat/guide.md, the guide for any agent. It needs no .env. `retro-pending` and `retro-aggregate-save`
@@ -636,6 +636,12 @@ def build_parser():
     health_command.add_argument("--notify", action="store_true",
                                 help="show a desktop notification when it stopped without being told to")
     add("stop", coordinator.command_stop, "interrupt the agents the coordinator started", GOAT + " stop",
+        item=False)
+    add("pause", coordinator.command_pause,
+        "pause the coordinator: no new agent starts, no gate is approved, nothing merges, until resume",
+        GOAT + " pause --stop", item=False).add_argument(
+        "--stop", action="store_true", help="also interrupt the agents running now")
+    add("resume", coordinator.command_resume, "undo pause: the coordinator starts work again", GOAT + " resume",
         item=False)
 
     add("chat", command_chat, "resume the issue's agent session in this terminal, for a live discussion",

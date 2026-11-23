@@ -114,6 +114,16 @@ The owner types `start 9`, `approve 9`, `send back 9: note` or `answer 9: text` 
 - **Secrets.** The token is only in the `Authorization` header and is removed from every error. `discord-check` reads only. Agents are denied the file, Discord, and both commands.
 - **Residual risk.** A taken-over Discord account could approve a size or plan, never a merge. Two-step verification is the defence. A PIN word is an option if needed.
 
+## Pausing the coordinator
+
+The owner can turn the coordinator's spending off without reaching the laptop: `pause`, `stop` or `resume` in the approvals channel, or `goat.py pause [--stop]` and `goat.py resume` in a terminal (including a Claude Code session driven from a phone with Remote Control). `goat/pause.py` holds the switch.
+
+- **A file, not a flag in memory.** The switch is `~/.goat-ai/coordinator/paused.json`. A terminal pause reaches a running coordinator, and a coordinator started while the file is there stays paused. An unreadable file counts as paused: the point is to stop spending, so in doubt it stays off.
+- **What a pause stops.** The turn notes agents that ended and records what autopilot QA and project manager runs did (closing an issue QA tested, starting the PM's picks on the board), then returns. No agent of any kind starts, no gate is approved, nothing merges, no follow-up and no early turn runs. Running agents finish their step.
+- **Stop.** `stop` (or `pause --stop`) is a pause plus `goat.py stop`: SIGINT to each running agent's process group. Their claims expire and the issues show as stale, as after `goat.py stop`; after the resume the coordinator starts them again.
+- **Resume at once.** The wait checks the file every 15 seconds. A resume from a terminal runs a turn within that time; a resume from Discord runs one at once, like any command.
+- **People only.** Agents are denied `goat.py pause` and `goat.py resume`, and the commands refuse to run when `GOAT_HEADLESS=1`: an agent that resumed the coordinator would undo the owner's stop.
+
 ## The Label Doctor
 
 People operate the gates by editing labels, and G.O.A.T. acts only on an issue whose labels make sense, so a slip used to be a silent no-op. `goat/doctor.py` reads the same issues the coordinator reads and, for each issue assigned to the `gh` user or to nobody, checks that it has one known stage label, at most one known `goat:` label, and a pair that some agent or person acts on (see the README for the full list). Each problem has a stable code, a short form for `list --problems`, the text, and the fix.

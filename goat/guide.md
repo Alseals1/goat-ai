@@ -127,6 +127,8 @@ Only goat-retro and goat-retro-aggregate use these. They read and write local fi
 | --- | --- |
 | `run` | Runs the coordinator, which starts agents for ready issues |
 | `stop` | Interrupts the agents the coordinator started |
+| `pause [--stop]` | Pauses the coordinator: no new agent starts, no gate is approved and nothing merges until `resume`. `--stop` also interrupts the agents running now |
+| `resume` | Ends a pause: the coordinator starts work again |
 | `chat <item>` | Resumes an issue's agent session in a terminal |
 | `update` | Moves the installation to the newest release tag |
 
@@ -141,7 +143,7 @@ Agents never approve a gate, answer a question or merge a PR. When one of those 
 - **Merge:** merge the PR on GitHub. The coordinator then moves the issue to `stage:staging`. To send the work back instead, comment and set `stage:implement` and `goat:ready`.
 - **Finish:** close the issue, which starts the retro and the cleanup.
 
-The owner can also type `start 9`, `approve 9`, `send back 9: <note>` or `answer 9: <answer>` in a private Discord channel. The coordinator, not an agent, reads it and makes the same label change as the owner, with the owner's own login (never a merge). An agent never reads Discord, never changes a gate label, and treats a comment that starts "Sent from Discord" like any comment a person wrote.
+The owner can also type `start 9`, `approve 9`, `send back 9: <note>` or `answer 9: <answer>` in a private Discord channel, and `pause`, `stop` or `resume` to pause the coordinator. The coordinator, not an agent, reads it and makes the same label change as the owner, with the owner's own login (never a merge). An agent never reads Discord, never changes a gate label, and treats a comment that starts "Sent from Discord" like any comment a person wrote.
 
 ## Next
 

@@ -7,6 +7,9 @@ The owner types in the private approvals channel:
     send back 9: what to change    comment your note and send the issue back to the agent
     answer 9: your answer          answer an agent's question and let it continue
     status                         what is waiting on you
+    pause                          start no new agent until resume (goat/pause.py)
+    stop                           pause, and interrupt the agents that are running
+    resume                         start work again
 
 Agents never see any of this and never change a label because of it. The coordinator reads the channel and makes the
 same label change the owner would make by hand (goat/board.py label_changes), with the owner's own `gh` login. It
@@ -22,6 +25,7 @@ only does what was typed, and only when all of these hold:
   sees no reply and types it again) but can never run one twice.
 
 A merge is never done from Discord: merging a PR stays on GitHub. Every action leaves a note on the issue.
+pause, stop and resume name no issue and change no label: the coordinator does them (the control callback).
 """
 
 import re
@@ -58,6 +62,7 @@ HELP_TEXT = ("here is what I understand:\n"
              "`send back 9: what to change` sends it back to the agent with your note.\n"
              "`answer 9: your answer` answers an agent's question.\n"
              "`status` lists what waits on you.\n"
+             "`pause` starts no new agent until you type `resume`; `stop` also interrupts the agents running now.\n"
              "Merging a PR always happens on GitHub.")
 USAGE = {
     "start": "`start` takes only the issue number, like `start 9` (or `start 9: assign me`).",
@@ -68,6 +73,11 @@ USAGE = {
 
 STATUS_WORDS = re.compile(r"^(?:status|what'?s waiting|waiting)\s*[?.!]*$", re.IGNORECASE)
 HELP_WORDS = re.compile(r"^(?:help|commands|\?)\s*[?.!]*$", re.IGNORECASE)
+# pause, stop and resume take no issue number. "stop 9" is not a command: it is unclear.
+CONTROL_WORDS = (("pause", re.compile(r"^pause(?:\s+(?:all|everything))?\s*[.!]*$", re.IGNORECASE)),
+                 ("stop", re.compile(r"^stop(?:\s+(?:all|everything|the agents|agents))?\s*[.!]*$", re.IGNORECASE)),
+                 ("resume", re.compile(r"^(?:resume|unpause|carry on|go again)\s*[.!]*$", re.IGNORECASE)))
+CONTROL_KINDS = tuple(kind for kind, _ in CONTROL_WORDS)
 ASSIGN_ME = re.compile(r"^assign(?:ed)?(?:\s+it)?(?:\s+to)?\s+me[.!]*$", re.IGNORECASE)
 VERBS = (("start", re.compile(r"^start\b(.*)$", re.IGNORECASE | re.DOTALL)),
          ("approve", re.compile(r"^approved?\b(.*)$", re.IGNORECASE | re.DOTALL)),
@@ -79,7 +89,8 @@ NUMBER_AND_TEXT = re.compile(r"^#?(\d{1,%d})(?:\s*[:\-–—]\s*|\s+|$)(.*)$" % 
 def parse(content):
     """What an owner's message means: a Command, or None for an empty message.
 
-    kind is approve, send_back, answer, status, help, or unclear (text then holds what to tell the owner)."""
+    kind is start, approve, send_back, answer, status, help, pause, stop, resume, or unclear (text then holds what to
+    tell the owner)."""
     text = (content or "").strip().lstrip("!").strip()
     if not text:
         return None
@@ -87,6 +98,9 @@ def parse(content):
         return Command("status", None, "")
     if HELP_WORDS.match(text):
         return Command("help", None, "")
+    for kind, pattern in CONTROL_WORDS:
+        if pattern.match(text):
+            return Command(kind, None, "")
     for kind, pattern in VERBS:
         match = pattern.match(text)
         if not match:
@@ -297,10 +311,12 @@ class Inbox:
 
     resolve_channel() -> channel id (str) or None.   locate(number) -> (found, problems) as for apply().
     waiting() -> (items waiting on the owner, problems).   reply(text, message id) sends the answer.
-    save(state) stores the state (the cursor lives in state["inbox"]["after"])."""
+    save(state) stores the state (the cursor lives in state["inbox"]["after"]).
+    control(kind, state) -> Outcome does pause, stop and resume (None: those commands are not available).
+    pause_line() -> "" or a line that says the coordinator is paused, for the status reply."""
 
     def __init__(self, bot, owner_id, resolve_channel, locate, waiting, reply, save, shared, owner, log,
-                 wall=time.time, clock=time.monotonic, started=None):
+                 wall=time.time, clock=time.monotonic, started=None, control=None, pause_line=None):
         self.bot = bot
         self.owner_id = str(owner_id)
         self.resolve_channel = resolve_channel
@@ -311,6 +327,8 @@ class Inbox:
         self.shared = shared
         self.owner = owner
         self.log = log
+        self.control = control
+        self.pause_line = pause_line or (lambda: "")
         self.wall = wall
         self.clock = clock
         # Only messages sent after this moment are commands. Earlier ones were typed before anyone was listening.
@@ -365,7 +383,7 @@ class Inbox:
                 for message in messages:
                     cursor = state["inbox"]["after"] = str(message["id"])
                     self.save(state)
-                    run_turn = self.handle_message(message) or run_turn
+                    run_turn = self.handle_message(message, state) or run_turn
                 if len(messages) < PAGE_SIZE:
                     break
         except DiscordError as error:
@@ -375,8 +393,10 @@ class Inbox:
     def problem_cleared(self):
         self.last_problem = None
 
-    def handle_message(self, message):
-        """Acts on one message if it is the owner's. Returns True when an agent can now start."""
+    def handle_message(self, message, state=None):
+        """Acts on one message if it is the owner's. Returns True when an agent can now start.
+
+        state is the coordinator's state, for stop (it interrupts the runs listed there)."""
         author = message.get("author") or {}
         if author.get("bot") or message.get("webhook_id"):
             return False
@@ -410,22 +430,29 @@ class Inbox:
         self.log("Discord inbox: {}{}.".format(command.kind.replace("_", " "),
                                                 " #{}".format(command.number) if command.number else ""))
         try:
-            outcome = self.run(command)
-        except (GitHubError, ConfigError) as error:
+            outcome = self.run(command, state)
+        except (GitHubError, ConfigError, OSError) as error:
             outcome = Outcome("I hit a problem and nothing was changed: {}".format(error), False)
         self.say(message_id, outcome.text)
         return outcome.run_turn
 
-    def run(self, command):
+    def run(self, command, state=None):
+        if command.kind in CONTROL_KINDS:
+            if self.control is None:
+                return Outcome(sentence(self.owner.get("name"), "pause, stop and resume are not available here."), False)
+            outcome = self.control(command.kind, state if state is not None else {"runs": [], "attempts": {}})
+            return Outcome(sentence(self.owner.get("name"), outcome.text), outcome.run_turn)
         if command.kind == "help":
             return Outcome(sentence(self.owner.get("name"), HELP_TEXT), False)
         if command.kind == "unclear":
             return Outcome(sentence(self.owner.get("name"), command.text), False)
         if command.kind == "status":
             items, problems = self.waiting()
+            line = self.pause_line()
             if problems and not items:
-                return Outcome("I could not read GitHub just now ({}).".format("; ".join(problems)), False)
-            return Outcome(sentence(self.owner.get("name"), status_text(items)), False)
+                return Outcome("I could not read GitHub just now ({}).{}".format(
+                    "; ".join(problems), "\n" + line if line else ""), False)
+            return Outcome(sentence(self.owner.get("name"), status_text(items)) + ("\n" + line if line else ""), False)
         found, problems = self.locate(command.number)
         outcome = apply(command, found, problems, self.shared, self.owner, datetime.now(timezone.utc))
         return Outcome(sentence(self.owner.get("name"), outcome.text), outcome.run_turn)

@@ -10,7 +10,7 @@ This repo is the **factory**. The app it builds lives in a **separate repo** (se
 
 | Path | What it is |
 | --- | --- |
-| `goat.py`, `goat/` | The CLI and the coordinator: add, claim, post, doc, summary, release, list, show, guide, setup-repo, cleanup, worktree, retro-facts, retro-save, retro-pending, retro-aggregate-save, version, update, and run, status, stop, chat. `goat/guide.md` is the guide that `goat.py guide` prints. `goat/github.py` is the only code that talks to GitHub |
+| `goat.py`, `goat/` | The CLI and the coordinator: add, claim, post, doc, summary, release, list, show, guide, setup-repo, cleanup, worktree, retro-facts, retro-save, retro-pending, retro-aggregate-save, version, update, and run, status, stop, pause, resume, chat. `goat/guide.md` is the guide that `goat.py guide` prints. `goat/github.py` is the only code that talks to GitHub |
 | `VERSION` | The factory version (SemVer). See [Versions and updates](#versions-and-updates) |
 | `goat-config.json` | Shared gate rules, claim leases, the team's names, and each agent's effort level |
 | `agent-settings.json` | Allow and deny rules for the headless agents the coordinator starts. They may use `goat.py`, `gh stack` and read-only `gh pr` commands. They may not merge, call `gh api`, `gh issue` or `gh label`, force-push, or build and release the app |
@@ -159,7 +159,10 @@ Type in a private **#approvals** channel (only you and the bot can see it):
 | `approve 9` | Swaps `goat:tier-review` or `goat:plan-review` for `goat:approved` on issue 9 |
 | `send back 9: add a skip button` | Comments your note, then sets `goat:ready` (a merge checkpoint goes back to `stage:implement`) |
 | `answer 9: yes, use Birmingham` | Comments your answer on an agent's question, then sets `goat:ready` |
-| `status` | Lists what is waiting on you |
+| `status` | Lists what is waiting on you (and says so when the coordinator is paused) |
+| `pause` | Pauses the coordinator: no new agent starts, no gate is approved, nothing merges. Agents already running finish their step. See [Pause the coordinator](#pause-the-coordinator) |
+| `stop` | Pauses, and interrupts the agents running now |
+| `resume` | Ends the pause: a turn runs at once |
 | `help` | Lists these commands |
 
 Dex replies in the channel, the issue gets a note ("approved in Discord"), and a turn runs at once so the next agent starts.
@@ -380,6 +383,20 @@ The coordinator starts the agents for you: every 15 minutes it reads each projec
    `--loop-count N` stops after N turns, `--loop-interval S` sets the seconds between turns, `--once` is one turn, `--delay S` waits before the first turn. While it waits, press `r` to run a turn now.
 5. Between turns it checks its agents every 15 seconds. When one ends, it reads only that issue and starts its next agent at once, within the same limits. The log shows `Finished: ...` and then `Started: ...` or `Not starting ...: <reason>`.
 6. `python3 ~/.goat-ai/goat.py status` shows whether the coordinator is running and lists the agents it started. `python3 ~/.goat-ai/goat.py stop` interrupts them. Logs are in `~/.goat-ai/coordinator/logs/`.
+
+### Pause the coordinator
+
+To stop spending without closing the coordinator, for example when your usage runs low, pause it. While paused it starts no agent of any kind, approves no gate and merges nothing. It keeps running, so it hears the resume.
+
+| Where | Pause | Pause and interrupt the running agents | Resume |
+| --- | --- | --- | --- |
+| Discord (#approvals) | `pause` | `stop` | `resume` |
+| Terminal | `goat.py pause` | `goat.py pause --stop` | `goat.py resume` |
+
+- From your phone: type it in Discord (needs [Approving from Discord](#approving-from-discord) set up), or run the terminal command through a Claude Code session on your laptop that you reach with Remote Control.
+- The pause is a file (`~/.goat-ai/coordinator/paused.json`), so it outlasts a restart: a coordinator you start while paused stays paused until you resume. `goat.py status` says when it is paused.
+- Interrupted agents leave their issues with an expired claim. After the resume the coordinator starts them again.
+- Only a person pauses or resumes. Agents are denied both commands.
 
 ### Keeping token use down
 
