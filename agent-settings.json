@@ -18,6 +18,7 @@
       "Bash(python3 */goat.py stop*)",
       "Bash(python3 goat.py run*)",
       "Bash(python3 goat.py stop*)",
+      "Bash(herdr *)",
       "Bash(python3 */goat.py add *--ready*)",
       "Bash(python3 goat.py add *--ready*)",
       "Bash(python3 */goat.py update*)",

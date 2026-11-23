@@ -19,6 +19,7 @@ This repo is the **factory**. The app it builds lives in a **separate repo** (se
 | `skills/goat-intake/`, `goat-plan/`, `goat-implement/`, `goat-review/` | The four role skills |
 | `skills/goat-qa/` | The QA skill: runs the app on local services in a browser and files bugs and UX or UI recommendations as backlog issues. See [QA](#qa) |
 | `skills/goat-research/` | The Research skill: researches a planned part on the public web and files sourced design proposals as backlog issues. See [Research](#research) |
+| `skills/goat-herdr/` | The herdr skill for your own interactive session: sets up a G.O.A.T. workspace in [herdr](https://herdr.dev), reads the coordinator's pane, opens chats and the app in panes. Role agents never use it. See [Run it in herdr](#run-it-in-herdr) |
 | `skills/goat-pm/` | The project manager skill (autopilot): picks which backlog issues start next. See [Autopilot](#autopilot) |
 | `goat/autopilot.py` | Autopilot: gate approvals, merges, QA after merge, and starting the PM's picks |
 | `skills/goat-retro/`, `goat-retro-aggregate/` | The retro skills: one reviews a closed issue and saves a local note; the aggregate finds patterns across notes and adds improvement issues. See [Retros](#retros) |
@@ -407,6 +408,15 @@ While it runs, the coordinator writes a heartbeat file every few seconds (`~/.go
 The exit code is 0 only for running, so scripts can use it. `health --json` prints the same as JSON. `health --notify` also shows a desktop notification for stale or died (not for stopped), so you can watch the coordinator from a scheduled job. On macOS, cron has no desktop session, so its notifications may silently not appear: use a launchd LaunchAgent (it runs in your login session), or just run `goat.py health --notify` by hand. G.O.A.T. does not install any schedule for you.
 
 If the coordinator cannot read GitHub several turns in a row, `health` says so.
+
+### Run it in herdr
+
+[herdr](https://herdr.dev) is a terminal workspace for agents. If you use it, the `goat-herdr` skill lets your own Claude session run the factory's panes for you:
+
+1. Install herdr and its Claude integration (`herdr integration install claude`), then start `herdr` and run `claude` in a pane, in the project repo. `scripts/install.sh` already links `goat-herdr` with the other skills. The skill reads herdr's own guide with `herdr --skill`, so you do not need to install herdr's skill separately.
+2. Ask things like "set up the goat workspace and start the coordinator", "what is the coordinator doing?", "open the chat for 14" or "start the app for 14 so I can check the PR".
+
+Role agents never control herdr: the coordinator removes herdr's variables (`HERDR_*`) from every agent it starts, and `agent-settings.json` denies `herdr`. The skill also stops when `GOAT_HEADLESS=1`.
 
 ## goat.py for scripts and agents
 

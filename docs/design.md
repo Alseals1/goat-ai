@@ -152,6 +152,7 @@ Safety comes in layers: deny rules in `agent-settings.json` (headless agents onl
 - Building and releasing the app is denied (`eas build`, `eas submit`, `eas update`, `fastlane`, store uploads), as are remote-database and hosting CLIs.
 - In code: an agent can only set the statuses `release` allows (never `approved`, `working` or `done`), `add --ready` is refused for headless agents, ownership and claim are checked on every write, and the cleanup runs its "nothing can be lost" checks before it removes anything.
 - Autopilot approvals, merges, closes and starts are coordinator code, never an agent action. The PM's `pick` only writes a local file, which the coordinator re-checks before it acts.
+- herdr: a coordinator started in a herdr pane would pass herdr's socket to every agent, and with it control of every pane (typing `gh pr merge` into the developer's own session, for example). `agent_env()` removes all `HERDR_*` variables, so herdr's skill and CLI see no herdr session, and `herdr` is denied as a second layer. The `goat-herdr` skill is for the developer's interactive session and stops when `GOAT_HEADLESS=1`.
 - Deny rules match command text, so they are a second line of defense rather than a boundary. Interactive sessions do not load `agent-settings.json`.
 
 ## Other design points

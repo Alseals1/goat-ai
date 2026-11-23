@@ -492,12 +492,20 @@ def clean_up_boards(boards, user_id, running_items, dry_run, retro_wait_ids=(), 
 
 # ---------- Agents ----------
 
+# herdr (https://herdr.dev) injects HERDR_ENV, HERDR_SOCKET_PATH, HERDR_PANE_ID and others into its panes.
+HERDR_ENV_PREFIX = "HERDR_"
+
+
 def agent_env():
     """The environment for headless sessions, with the headless flag the protocol reads."""
     env = dict(os.environ)
     env["GOAT_HEADLESS"] = "1"
     # Each session gets its own id. Do not pass on the id of a session that started the coordinator.
     env.pop("CLAUDE_CODE_SESSION_ID", None)
+    # A coordinator run in a herdr pane would pass on herdr's socket, and with it control of every pane.
+    # Headless agents stay out of the terminal: they work only through goat.py, git and gh.
+    for name in [name for name in env if name.startswith(HERDR_ENV_PREFIX)]:
+        del env[name]
     return env
 
 
