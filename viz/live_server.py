@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Local live server for the G.O.A.T. AI floor view. Adapted from the Software Farm floor.
 
-Serves floor.html and /api/snapshot on 127.0.0.1 only. It only reads:
+Serves floor.html, /api/snapshot and /api/day (the shift report) on 127.0.0.1 only. It only reads:
   - `goat.py list --json` in each project repo (a read of the GitHub issues, every --board-every seconds)
   - ~/.goat-ai/coordinator/state.json (the coordinator's running agents)
   - ~/.goat-ai/runs.jsonl (one record per finished run, with its outcome)
   - the "repos" and "coordinator" keys of ~/.goat-ai/config.json
+  - ~/.goat-ai/viz/usage.json (your plan usage, saved by usage_statusline.py when you use Claude Code)
   - `goat.py show <number> --json`, only for an issue that waits on a question or a chat, once per change,
     for the text of its newest comment (the question bubble)
 It writes nothing and sends nothing anywhere but your own browser.
@@ -29,13 +30,17 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GOAT_HOME = os.path.expanduser(os.environ.get("GOAT_VIZ_HOME", "~/.goat-ai"))
 STATE_FILE = os.path.join(GOAT_HOME, "coordinator", "state.json")
 RUNS_FILE = os.path.join(GOAT_HOME, "runs.jsonl")
 CONFIG_FILE = os.path.join(GOAT_HOME, "config.json")
+# Written by usage_statusline.py (a Claude Code status line): the plan's usage windows and their reset times.
+USAGE_FILE = os.path.join(GOAT_HOME, "viz", "usage.json")
 # This folder sits in the G.O.A.T. AI repo, so it runs the CLI next to it.
 GOAT_CLI = os.path.join(os.path.dirname(HERE), "goat.py")
 PAGE = os.path.join(HERE, "floor.html")
@@ -131,10 +136,56 @@ def tail_runs():
         entry = {k: record.get(k) for k in
                  ("item", "board", "role", "startedAt", "endedAt", "fromStage", "toStage", "outcome")}
         entry["item"] = run_key(record.get("item"), record.get("board"))
-        tokens = record.get("tokens")
-        entry["outputTokens"] = tokens.get("output") if isinstance(tokens, dict) else None
+        tokens = record.get("tokens") if isinstance(record.get("tokens"), dict) else {}
+        entry["outputTokens"] = tokens.get("output")
+        entry["inputTokens"] = tokens.get("input")
+        entry["cacheReadTokens"] = tokens.get("cacheRead")
+        entry["cacheWriteTokens"] = tokens.get("cacheWrite")
         out.append(entry)
     return out
+
+
+def local_date(stamp):
+    """The local calendar date of an ISO time such as 2026-11-24T21:05:00Z, or None."""
+    try:
+        return datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone().date()
+    except (AttributeError, ValueError):
+        return None
+
+
+def day_report(day_text):
+    """Every run record that ended on one local day (all of runs.jsonl, not only the tail), with issue names."""
+    try:
+        day = datetime.strptime(day_text or "", "%Y-%m-%d").date()
+    except ValueError:
+        day = datetime.now().date()
+    runs = []
+    try:
+        with open(RUNS_FILE) as f:
+            for line in f:
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                if local_date(record.get("endedAt") or record.get("startedAt")) != day:
+                    continue
+                tokens = record.get("tokens") if isinstance(record.get("tokens"), dict) else {}
+                runs.append({
+                    "item": run_key(record.get("item"), record.get("board")), "role": record.get("role"),
+                    "startedAt": record.get("startedAt"), "endedAt": record.get("endedAt"),
+                    "fromStage": record.get("fromStage"), "toStage": record.get("toStage"),
+                    "outcome": record.get("outcome"), "model": record.get("model"), "effort": record.get("effort"),
+                    "tokens": {k: tokens.get(k) for k in ("input", "output", "cacheRead", "cacheWrite")},
+                })
+    except OSError:
+        pass
+    with lock:
+        items = {str(i["id"]): {"label": i.get("taskId") or str(i["id"]), "name": i.get("name"),
+                                "farmStatus": i.get("farmStatus"), "status": i.get("status")} for i in board["items"]}
+    return {"date": day.isoformat(), "runs": runs, "items": items, "planUsage": read_json(USAGE_FILE, None),
+            "runsFileFound": os.path.exists(RUNS_FILE)}
 
 
 QUESTION_STATES = ("answer question", "chat with agent")
@@ -251,6 +302,7 @@ def snapshot():
         "finished": tail_runs(),
         "questions": questions,
         "limits": safe_config()["limits"],
+        "planUsage": read_json(USAGE_FILE, None),
         "coordinatorStateFound": os.path.exists(STATE_FILE),
     }
 
@@ -266,6 +318,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/snapshot"):
             self.send(200, json.dumps(snapshot()).encode(), "application/json")
+        elif self.path.startswith("/api/day"):
+            query = parse_qs(urlparse(self.path).query)
+            self.send(200, json.dumps(day_report((query.get("date") or [""])[0])).encode(), "application/json")
         elif self.path in ("/", "/index.html"):
             with open(PAGE, "rb") as f:
                 self.send(200, f.read(), "text/html; charset=utf-8")
