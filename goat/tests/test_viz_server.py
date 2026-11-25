@@ -90,6 +90,57 @@ class NewestCommentTest(unittest.TestCase):
         self.assertIsNone(live_server.newest_comment({"comments": []}))
 
 
+def write_lines(path, records):
+    with open(path, "w") as f:
+        for record in records:
+            f.write((record if isinstance(record, str) else json.dumps(record)) + "\n")
+
+
+class DayReportTest(unittest.TestCase):
+    def report(self, records, day, usage=None, items=()):
+        with tempfile.TemporaryDirectory() as home:
+            runs = os.path.join(home, "runs.jsonl")
+            usage_file = os.path.join(home, "usage.json")
+            if records is not None:
+                write_lines(runs, records)
+            if usage is not None:
+                with open(usage_file, "w") as f:
+                    json.dump(usage, f)
+            with mock.patch.multiple(live_server, RUNS_FILE=runs, USAGE_FILE=usage_file), \
+                    mock.patch.dict(live_server.board, {"items": list(items), "readAt": 1.0, "errors": {}}):
+                return live_server.day_report(day)
+
+    def test_only_runs_that_ended_that_local_day_with_the_card_id_and_tokens(self):
+        noon = "2026-11-24T12:00:00"
+        ended = live_server.datetime.fromisoformat(noon).astimezone().isoformat()
+        records = [
+            {"item": "34", "board": "Alseals1/RocketPal", "role": "plan", "startedAt": ended, "endedAt": ended,
+             "outcome": "gate", "tokens": {"input": 10, "output": 900, "cacheRead": 5, "cacheWrite": 2}},
+            {"item": "35", "board": "Alseals1/RocketPal", "role": "plan", "endedAt": "2026-11-20T12:00:00Z"},
+            "not json",
+            "[1, 2]",
+        ]
+        item = live_server.normalize_item(listed(34, "plan", "plan-review"), "Alseals1/RocketPal", False)
+        report = self.report(records, "2026-11-24", items=[item])
+        self.assertEqual(report["date"], "2026-11-24")
+        self.assertTrue(report["runsFileFound"])
+        self.assertEqual([r["item"] for r in report["runs"]], ["Alseals1/RocketPal#34"])
+        self.assertEqual(report["runs"][0]["tokens"], {"input": 10, "output": 900, "cacheRead": 5, "cacheWrite": 2})
+        self.assertEqual(report["items"]["Alseals1/RocketPal#34"]["label"], "#34")
+        self.assertEqual(report["items"]["Alseals1/RocketPal#34"]["name"], "Issue 34")
+
+    def test_no_runs_file_and_a_bad_date_give_today_and_say_so(self):
+        report = self.report(None, "not a date")
+        self.assertEqual(report["date"], live_server.datetime.now().date().isoformat())
+        self.assertFalse(report["runsFileFound"])
+        self.assertEqual(report["runs"], [])
+        self.assertIsNone(report["planUsage"])
+
+    def test_the_saved_plan_usage_is_included(self):
+        usage = {"windows": {"five_hour": {"used_percentage": 40}}}
+        self.assertEqual(self.report([], "2026-11-24", usage=usage)["planUsage"], usage)
+
+
 class SnapshotTest(unittest.TestCase):
     def test_runs_and_records_point_at_the_same_card_as_the_issue(self):
         with tempfile.TemporaryDirectory() as home:
@@ -113,6 +164,25 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(snap["finished"][0]["outcome"], "gate")
         self.assertEqual(snap["attention"], [])
         self.assertTrue(snap["coordinatorStateFound"])
+
+    def test_the_snapshot_has_plan_usage_and_every_token_count(self):
+        with tempfile.TemporaryDirectory() as home:
+            runs = os.path.join(home, "runs.jsonl")
+            usage_file = os.path.join(home, "usage.json")
+            write_lines(runs, [{"item": "1", "board": "o/r", "role": "plan",
+                                "tokens": {"input": 1, "output": 2, "cacheRead": 3, "cacheWrite": 4}},
+                               {"item": "2", "board": "o/r", "role": "plan", "tokens": None}])
+            with open(usage_file, "w") as f:
+                json.dump({"windows": {}}, f)
+            with mock.patch.multiple(live_server, STATE_FILE=os.path.join(home, "none.json"), RUNS_FILE=runs,
+                                     USAGE_FILE=usage_file, CONFIG_FILE=os.path.join(home, "config.json")), \
+                    mock.patch.dict(live_server.board, {"items": [], "readAt": None, "errors": {}}):
+                snap = live_server.snapshot()
+        self.assertEqual(snap["planUsage"], {"windows": {}})
+        first, second = snap["finished"]
+        self.assertEqual((first["inputTokens"], first["outputTokens"], first["cacheReadTokens"],
+                          first["cacheWriteTokens"]), (1, 2, 3, 4))
+        self.assertIsNone(second["outputTokens"])
 
 
 if __name__ == "__main__":

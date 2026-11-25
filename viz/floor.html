@@ -35,6 +35,28 @@ tr.att td{color:var(--warn)}
 a{color:var(--accent)}
 #errors{color:var(--bad)}
 @media(max-width:860px){.grid{grid-template-columns:1fr}}
+.usage{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:0 0 12px}
+.meter{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:8px 12px}
+.meter .top{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:12px}
+.meter .val{font-size:15px;margin-top:2px}
+.meter .track{height:8px;background:#33333d;border-radius:4px;margin:6px 0;overflow:hidden}
+.meter .fill{height:100%;border-radius:4px}
+.meter .note{color:var(--muted);font-size:12px}
+#report{position:fixed;inset:0;background:rgba(8,8,12,0.72);display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:32px 16px;z-index:10}
+#report.open{display:flex}
+.rp{background:var(--bg);border:1px solid var(--border);border-radius:10px;max-width:1000px;width:100%;padding:18px 20px}
+.rp h2{font-size:16px;font-weight:500;margin:0}
+.rp h3{font-size:12px;font-weight:500;color:var(--muted);margin:18px 0 6px}
+.rp .head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rp .head .sp{flex:1}
+.rp .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:14px}
+.rp .kpi{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:8px 10px}
+.rp .kpi .n{font-size:22px}
+.rp .kpi .l{color:var(--muted);font-size:12px}
+.rp .chip{display:inline-block;font-size:11px;padding:0 6px;border-radius:4px;margin:0 3px 2px 0;color:#1b1b1b}
+.rp .muted{color:var(--muted)}
+.rp .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.rp svg text{font:11px ui-monospace,Menlo,monospace;fill:var(--muted)}
 </style>
 </head>
 <body>
@@ -50,10 +72,17 @@ a{color:var(--accent)}
     <span id="coordInfo"></span>
     <span id="errors"></span>
     <span class="sp"></span>
+    <button id="shift">Shift report</button>
     <button id="view">View: 2D</button>
     <button id="sound">Sound: off</button>
     <button id="time">Time: real</button>
   </div>
+  <div class="usage" id="usage"></div>
+  <div id="report"><div class="rp">
+    <div class="head"><h2 id="rpTitle">Shift report</h2><span class="sp"></span>
+      <button id="rpPrev">← Day before</button><button id="rpNext">Day after →</button><button id="rpCopy">Copy as text</button><button id="rpClose">Close</button></div>
+    <div id="rpBody" class="muted" style="margin-top:12px">Loading…</div>
+  </div></div>
   <div class="grid">
     <div class="panel"><h2>Board (waiting for you in yellow)</h2><table id="board"></table></div>
     <div class="panel"><h2>Activity</h2><div id="log"></div></div>
@@ -249,7 +278,58 @@ async function poll(){
 
 // ---------- scoreboard ----------
 const fmtTok=n=>n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?Math.round(n/1e3)+'k':String(n);
+const WIN_LABEL={five_hour:'5-hour limit',seven_day:'7-day limit',spend_limit:'Spend limit'};
+const WIN_SHORT={five_hour:'5h',seven_day:'7d',spend_limit:'Spend'};
+function fmtDur(sec){ sec=Math.max(0,Math.round(sec)); const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60);
+  return d?d+'d '+h+'h':h?h+'h '+m+'m':m+'m'; }
+function liveWindows(){
+  const u=snap&&snap.planUsage, now=Date.now()/1000, out=[];
+  for(const k of ['five_hour','seven_day','spend_limit']){ const w=u&&u.windows&&u.windows[k]; if(w&&w.used_percentage!=null) out.push(Object.assign({key:k,past:!!(w.resets_at&&w.resets_at<=now)},w)); }
+  return out;
+}
+function tokensToday(){
+  const fin=(snap&&snap.finished)||[], today=new Date().toDateString();
+  const t={runs:0,noTokens:0,out:0,inp:0,cr:0,cw:0};
+  for(const f of fin){ if(!f.endedAt||new Date(f.endedAt).toDateString()!==today) continue; t.runs++;
+    if(f.outputTokens==null&&f.inputTokens==null){ t.noTokens++; continue; }
+    t.out+=f.outputTokens||0; t.inp+=f.inputTokens||0; t.cr+=f.cacheReadTokens||0; t.cw+=f.cacheWriteTokens||0; }
+  return t;
+}
+function usageLines(){
+  const now=Date.now()/1000, lines=[];
+  for(const w of liveWindows()) lines.push(WIN_SHORT[w.key]+' '+Math.round(w.used_percentage)+'% '+(w.past?'reset':w.resets_at?'reset '+fmtDur(w.resets_at-now).replace(' ',''):''));
+  if(!lines.length) lines.push('Plan limits: no data');
+  const t=tokensToday(); lines.push('Tok out today '+fmtTok(t.out)); lines.push('Tok in today '+fmtTok(t.inp));
+  return lines.slice(0,4);
+}
+function renderUsage(){
+  const el=document.getElementById('usage'), u=snap&&snap.planUsage, now=Date.now()/1000, cards=[];
+  const ago=ts=>ts?fmtDur(now-ts)+' ago':'never';
+  const color=p=>p>=85?'var(--bad)':p>=60?'var(--warn)':'var(--good)';
+  for(const w of liveWindows()){
+    const p=Math.max(0,Math.min(100,w.used_percentage)), at=w.resets_at?new Date(w.resets_at*1000):null;
+    const when=at?(w.resets_at-now>86400?at.toLocaleString([],{weekday:'short',hour:'numeric',minute:'2-digit'}):at.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})):'';
+    const money=w.key==='spend_limit'&&w.used_usd!=null?' · $'+Math.round(w.used_usd)+(w.limit_usd!=null?' of $'+Math.round(w.limit_usd):'')+(w.period?' ('+esc(w.period)+')':''):'';
+    cards.push('<div class="meter"><div class="top"><span>'+WIN_LABEL[w.key]+'</span><span>saved '+ago(u.windowsSavedAt)+'</span></div>'+
+      '<div class="val">'+Math.round(p)+'% used · '+Math.round(100-p)+'% left'+money+'</div>'+
+      '<div class="track"><div class="fill" style="width:'+p+'%;background:'+color(p)+'"></div></div>'+
+      '<div class="note">'+(w.past?'This window has reset. New numbers arrive with your next Claude Code reply.':at?'Resets in '+fmtDur(w.resets_at-now)+' ('+when+')':'No reset time sent')+'</div></div>');
+  }
+  if(!cards.length){
+    const msg=!u?'No data yet. Run python3 viz/install_statusline.py to save it from your Claude Code status line (see viz/README.md), then use Claude Code once.'
+      :u.noLimitsAfterResponse?'Claude Code sent no plan limits for this account (last checked '+ago(u.checkedAt)+'). Claude Code only sends them for Pro and Max plans, or behind a gateway with a spend limit.'
+      :'No plan limits yet (last checked '+ago(u.checkedAt)+'). They arrive after the first reply in a Claude Code session.';
+    cards.push('<div class="meter"><div class="top"><span>Plan usage</span></div><div class="note">'+esc(msg)+'</div></div>');
+  }
+  const t=tokensToday();
+  cards.push('<div class="meter"><div class="top"><span>G.O.A.T. agent tokens today</span><span>'+t.runs+' run(s)</span></div>'+
+    '<div class="val">'+fmtTok(t.out)+' out · '+fmtTok(t.inp)+' in</div>'+
+    '<div class="note">Cache: '+fmtTok(t.cr)+' read · '+fmtTok(t.cw)+' write'+(t.noTokens?' · '+t.noTokens+' run(s) with no token data':'')+'. From runs.jsonl.</div></div>');
+  el.innerHTML=cards.join('');
+}
+setInterval(renderUsage,1000);
 function scoreLines(){
+  if(Math.floor(F.T/6)%2) return usageLines();
   const max=snap&&snap.limits?snap.limits.maxAgents:3;
   const lines=['Agents '+runsByPid.size+'/'+max,'Waiting on you '+gateIn.items().length];
   const fin=(snap&&snap.finished)||[], today=new Date().toDateString();
@@ -318,6 +398,103 @@ if(window.Floor3D&&window.THREE) Floor3D.setupToggle(document.getElementById('vi
 else { const v=document.getElementById('view'); v.textContent='3D files missing'; v.disabled=true; }
 poll();
 window.__floor={cards,runsByPid,sleepers,F};
+
+// ---------- shift report ----------
+// Only these roles write a run record: they release an issue. QA, the project manager and Retro do not.
+const ROLE_ORDER=['intake','plan','implement','review'];
+const GATE_NAME={intake:'Tier review',plan:'Plan review',review:'Merge review'};
+const isoDay=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const mins=ms=>fmtDur(ms/1000);
+let rpDay=isoDay(new Date()), rpText='';
+function waitKind(r){ return r.outcome==='question'?'Answer question':r.outcome==='chat'?'Chat with Agent':(GATE_NAME[r.role]||'a gate'); }
+function buildReport(d){
+  const today=isoDay(new Date())===d.date;
+  const label=id=>{ const it=d.items[String(id)]; return it?it.label:String(id); };
+  const nameOf=id=>{ const it=d.items[String(id)]; return it&&it.name?it.name:''; };
+  const runs=d.runs.filter(r=>r.startedAt&&r.endedAt).map(r=>Object.assign({},r,{s:Date.parse(r.startedAt),e:Date.parse(r.endedAt)})).sort((a,b)=>a.s-b.s);
+  const dateText=new Date(d.date+'T12:00:00').toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'});
+  document.getElementById('rpTitle').textContent='Shift report · '+dateText;
+  document.getElementById('rpNext').disabled=today;
+  if(!d.runsFileFound) return {html:'<p>No runs.jsonl found on this computer yet. Run records appear when agents release issues.</p>',text:''};
+  if(!runs.length) return {html:'<p>No agent released an issue on this day.</p>'+notes(),text:'Shift report, '+dateText+': no runs.'};
+  const sum=(l,f)=>l.reduce((n,x)=>n+(f(x)||0),0);
+  const items=[...new Set(runs.map(r=>String(r.item)))];
+  const atMerge=runs.filter(r=>r.role==='review'&&r.outcome==='gate');
+  const questions=runs.filter(r=>r.outcome==='question'||r.outcome==='chat');
+  const sendBacks=runs.filter(r=>r.outcome==='sent-back');
+  const gates=runs.filter(r=>r.outcome==='gate');
+  const agentMs=sum(runs,r=>r.e-r.s), out=sum(runs,r=>r.tokens&&r.tokens.output), inp=sum(runs,r=>r.tokens&&r.tokens.input);
+  // per role
+  const roles=[...new Set(runs.map(r=>r.role))].sort((a,b)=>(ROLE_ORDER.indexOf(a)+1||99)-(ROLE_ORDER.indexOf(b)+1||99));
+  const byRole=roles.map(role=>{ const l=runs.filter(r=>r.role===role), t=sum(l,r=>r.e-r.s), long=l.reduce((m,r)=>r.e-r.s>m.e-m.s?r:m,l[0]);
+    return {role,n:l.length,t,avg:t/l.length,long,out:sum(l,r=>r.tokens&&r.tokens.output),inp:sum(l,r=>r.tokens&&r.tokens.input)}; });
+  const busiest=byRole.reduce((m,x)=>x.t>m.t?x:m,byRole[0]);
+  // waits on people
+  const waits=runs.filter(r=>['gate','question','chat'].includes(r.outcome)).map(r=>{
+    const next=runs.find(x=>String(x.item)===String(r.item)&&x.s>=r.e);
+    return {r,next,ms:next?next.s-r.e:null};
+  });
+  const doneWaits=waits.filter(w=>w.ms!=null), avgWait=doneWaits.length?sum(doneWaits,w=>w.ms)/doneWaits.length:null;
+  const longestWait=doneWaits.reduce((m,w)=>!m||w.ms>m.ms?w:m,null);
+  // per item
+  const perItem=items.map(id=>{ const l=runs.filter(r=>String(r.item)===id); return {id,l,ms:sum(l,r=>r.e-r.s),last:l[l.length-1]}; }).sort((a,b)=>b.ms-a.ms);
+  const col=r=>F.COL[roleKey(r)]||F.COL.other;
+  const chip=r=>'<span class="chip" style="background:'+col(r)+'">'+esc(roleName(r))+'</span>';
+  const outText=r=>r.outcome==='next-stage'?'next: '+(F.NAME[r.toStage]||r.toStage||'-'):r.outcome==='gate'?'at '+(GATE_NAME[r.role]||'a gate'):r.outcome==='sent-back'?'sent back to Implement':r.outcome==='question'?'asked a question':r.outcome==='chat'?'asked for a chat':(r.outcome||'-');
+  // timeline
+  const t0=runs[0].s, t1=Math.max(...runs.map(r=>r.e)), span=Math.max(t1-t0,60000), Wd=940, L=92, lane=22, Ht=roles.length*lane+28;
+  const X=t=>L+(t-t0)/span*(Wd-L-10);
+  let svg='<svg viewBox="0 0 '+Wd+' '+Ht+'" width="100%" role="img" aria-label="Runs by role over the day">';
+  const step=span>6*3600e3?3600e3*2:span>2*3600e3?3600e3:span>3600e3?1800e3:600e3;
+  for(let t=Math.ceil(t0/step)*step;t<=t1;t+=step){ svg+='<line x1="'+X(t)+'" x2="'+X(t)+'" y1="0" y2="'+(Ht-16)+'" stroke="#33333d"/><text x="'+X(t)+'" y="'+(Ht-3)+'" text-anchor="middle">'+new Date(t).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+'</text>'; }
+  roles.forEach((role,i)=>{ const y=i*lane+4; svg+='<text x="0" y="'+(y+13)+'">'+esc(roleName(role))+'</text>';
+    runs.filter(r=>r.role===role).forEach(r=>{ const x=X(r.s), w=Math.max(3,X(r.e)-x);
+      svg+='<rect x="'+x+'" y="'+y+'" width="'+w+'" height="16" rx="3" fill="'+col(role)+'"><title>'+esc(label(r.item)+' · '+roleName(role)+' · '+mins(r.e-r.s)+' · '+outText(r))+'</title></rect>';
+      const mk=r.outcome==='gate'?'#FAC775':r.outcome==='question'||r.outcome==='chat'?'#85B7EB':r.outcome==='sent-back'?'#F09595':null;
+      if(mk) svg+='<circle cx="'+(x+w)+'" cy="'+(y+8)+'" r="4" fill="'+mk+'" stroke="#1b1b22"/>'; }); });
+  svg+='</svg>';
+  const kpi=(n,l)=>'<div class="kpi"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>';
+  let html='<div class="muted">'+new Date(t0).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+' to '+new Date(t1).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+(today?' (so far today)':'')+'. Busiest stage: '+esc(roleName(busiest.role))+' ('+busiest.n+' run'+(busiest.n>1?'s':'')+', '+mins(busiest.t)+').</div>'+
+    '<div class="kpis">'+kpi(runs.length,'agent runs')+kpi(items.length,'issues worked on')+kpi(atMerge.length,'PRs reached Merge review')+kpi(gates.length,'gates reached')+kpi(questions.length,'questions for people')+kpi(sendBacks.length,'Review send-backs')+kpi(mins(agentMs),'total agent time')+kpi(fmtTok(out),'output tokens')+'</div>'+
+    '<h3>Timeline (yellow dot: gate · blue: question · red: send-back; hover a bar for details)</h3>'+svg+
+    '<div class="two"><div><h3>Time per stage</h3><table><tr><th>Stage</th><th>Runs</th><th>Total</th><th>Average</th><th>Longest</th></tr>'+
+    byRole.map(x=>'<tr><td>'+chip(x.role)+'</td><td>'+x.n+'</td><td>'+mins(x.t)+'</td><td>'+mins(x.avg)+'</td><td>'+mins(x.long.e-x.long.s)+' ('+esc(label(x.long.item))+')</td></tr>').join('')+'</table></div>'+
+    '<div><h3>Waiting on people'+(avgWait!=null?' · average '+mins(avgWait):'')+'</h3>'+(waits.length?'<table><tr><th>Issue</th><th>Waited at</th><th>Wait</th></tr>'+
+    waits.map(w=>'<tr><td>'+esc(label(w.r.item))+'</td><td>'+esc(waitKind(w.r))+'</td><td>'+(w.ms!=null?mins(w.ms):today?'<span style="color:var(--warn)">still waiting</span>':'no next run that day')+'</td></tr>').join('')+'</table>':'<p class="muted">Nothing waited on a person.</p>')+'</div></div>'+
+    '<h3>Issues</h3><table><tr><th>Issue</th><th>Stages today</th><th>Agent time</th><th>Ended with</th></tr>'+
+    perItem.map(p=>'<tr><td>'+esc(label(p.id))+' <span class="muted">'+esc(nameOf(p.id))+'</span></td><td>'+p.l.map(r=>chip(r.role)).join('')+'</td><td>'+mins(p.ms)+'</td><td>'+esc(outText(p.last))+'</td></tr>').join('')+'</table>'+
+    '<div class="two"><div><h3>Tokens by stage</h3><table><tr><th>Stage</th><th>Output</th><th>Input</th></tr>'+byRole.map(x=>'<tr><td>'+chip(x.role)+'</td><td>'+fmtTok(x.out)+'</td><td>'+fmtTok(x.inp)+'</td></tr>').join('')+
+    '<tr><td>Total</td><td>'+fmtTok(out)+'</td><td>'+fmtTok(inp)+'</td></tr></table></div>'+
+    '<div><h3>Plan usage (latest saved)</h3>'+planHTML(d.planUsage)+'</div></div>'+notes();
+  const lines=['Shift report, '+dateText,
+    runs.length+' agent runs on '+items.length+' issues, '+mins(agentMs)+' of agent time, '+fmtTok(out)+' output tokens.',
+    atMerge.length+' PR(s) reached Merge review, '+gates.length+' gate(s) reached, '+questions.length+' question(s) for people, '+sendBacks.length+' send-back(s).',
+    'Busiest stage: '+roleName(busiest.role)+' ('+busiest.n+' runs, '+mins(busiest.t)+').',
+    avgWait!=null?'Average wait on a person: '+mins(avgWait)+(longestWait?' (longest: '+label(longestWait.r.item)+' at '+waitKind(longestWait.r)+', '+mins(longestWait.ms)+')':'')+'.':'No finished waits on people.',
+    'Time per stage: '+byRole.map(x=>roleName(x.role)+' '+x.n+'x avg '+mins(x.avg)).join(', ')+'.'];
+  const still=waits.filter(w=>w.ms==null&&today); if(still.length) lines.push('Still waiting: '+still.map(w=>label(w.r.item)+' ('+waitKind(w.r)+')').join(', ')+'.');
+  return {html,text:lines.join('\n')};
+}
+function planHTML(u){
+  const now=Date.now()/1000, ws=[];
+  for(const k of ['five_hour','seven_day','spend_limit']){ const w=u&&u.windows&&u.windows[k]; if(w&&w.used_percentage!=null) ws.push('<p>'+WIN_LABEL[k]+': '+Math.round(w.used_percentage)+'% used'+(w.resets_at?(w.resets_at>now?', resets in '+fmtDur(w.resets_at-now):', has reset since'):'')+'</p>'); }
+  return ws.length?ws.join(''):'<p class="muted">'+(u&&u.noLimitsAfterResponse?'Claude Code sent no plan limits for this account.':'No plan usage saved.')+'</p>';
+}
+function notes(){ return '<h3>What this report does not count</h3><p class="muted">Merges (on GitHub, or by the autopilot), QA, project manager and Retro runs, and runs that ended without releasing their issue (errors or stops): none of these write a run record. Wait times run from the end of one run to the start of that issue\'s next run, so they include the coordinator\'s wait for its next turn. Runs are from runs.jsonl on this computer only.</p>'; }
+async function openReport(day){
+  rpDay=day; document.getElementById('report').classList.add('open');
+  const body=document.getElementById('rpBody'); body.innerHTML='Loading…';
+  try{ const d=await (await fetch('/api/day?date='+day,{cache:'no-store'})).json(); const r=buildReport(d); body.innerHTML=r.html; rpText=r.text; }
+  catch(e){ body.textContent='Could not load the report. Is live_server.py running?'; rpText=''; }
+}
+const shiftDay=n=>{ const d=new Date(rpDay+'T12:00:00'); d.setDate(d.getDate()+n); return isoDay(d); };
+document.getElementById('shift').addEventListener('click',()=>{ F.ringBell(); F.foreman.do(async()=>{ await F.foreman.goto(R.board.x+22,R.board.y+84); await wait(1); await F.foreman.goto(...F.foreman.home); }); openReport(isoDay(new Date())); });
+document.getElementById('rpPrev').addEventListener('click',()=>openReport(shiftDay(-1)));
+document.getElementById('rpNext').addEventListener('click',()=>openReport(shiftDay(1)));
+document.getElementById('rpClose').addEventListener('click',()=>document.getElementById('report').classList.remove('open'));
+document.getElementById('report').addEventListener('click',e=>{ if(e.target.id==='report') e.target.classList.remove('open'); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') document.getElementById('report').classList.remove('open'); });
+document.getElementById('rpCopy').addEventListener('click',async e=>{ try{ await navigator.clipboard.writeText(rpText); e.target.textContent='Copied'; }catch(err){ e.target.textContent='Copy failed'; } setTimeout(()=>e.target.textContent='Copy as text',1500); });
 })();
 </script>
 </body>
